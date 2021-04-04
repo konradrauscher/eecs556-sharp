@@ -4,7 +4,7 @@ using FFTW
 using ImageFiltering
 using Statistics
 
-function initialization(Yim2::Array{Any}, sdf::Array{Float},
+function initialization(Yim2::Array{Any}, sdf::Array{Float64},
     nl::Int,nc::Int,L::Int,
     dx::Int, dy::Int, d::Array{Int}, limsub::Int,r::Int)
 
@@ -18,7 +18,7 @@ function initialization(Yim2::Array{Any}, sdf::Array{Float},
     end
 
     Y2im = real.(ifft2(fft2(Ylim).*FBM2))
-    Y2tr = Y2im(limsub+1:end-limsub,limsub+1:end-limsub,:)
+    Y2tr = Y2im[limsub+1:end-limsub,limsub+1:end-limsub,:]
     Y2n = reshape(Y2tr,[(nl-4)*(nc-4),L])
     F, d, P = svd(Y2n')#,"econ")
     F = F(:,1:r)
@@ -43,7 +43,7 @@ return M, Y
 end
 
 
-function ConvCM(X::Array{Float,2}, FKM::Array{Complex,3}, nl::Int, nc::Int = 0, L::Int=0)
+function ConvCM(X::Array{Float64,2}, FKM::Array{ComplexF64,3}, nl::Int, nc::Int = 0, L::Int=0)
     if nc == 0 || L == 0
         L, n = size(X)
         nc = n ÷ nl
@@ -66,19 +66,19 @@ function conv2mat(X,nl::Int,nc::Int,L::Int)
 end
 
 
-function grad_cost_G(Z::Array{Float,2},
-    F::Array{Float,2},
-    Y::Array{Float,2},
-    UBTMTy::Array{Float,2},
-    FBM::Array{Complex,3},
-    Mask::Array{Float,2},
-    nl:Int, nc::Int, r::Int,
-    tau::Float, q::Array{Float},
-    FDH::Array{Complex,3},
-    FDV::Array{Complex,3},
-    FDHC::Array{Complex,3},
-    FDVC::Array{Complex,3},
-    W::Array{Float})
+function grad_cost_G(Z::Array{Float64,2},
+    F::Array{Float64,2},
+    Y::Array{Float64,2},
+    UBTMTy::Array{Float64,2},
+    FBM::Array{ComplexF64,3},
+    Mask::Array{Float64,2},
+    nl::Int, nc::Int, r::Int,
+    tau::Float64, q::Array{Float64},
+    FDH::Array{ComplexF64,3},
+    FDV::Array{ComplexF64,3},
+    FDHC::Array{ComplexF64,3},
+    FDVC::Array{ComplexF64,3},
+    W::Array{Float64})
 
     X = F*Z
     BX=ConvCM(X,FBM,nl);
@@ -95,19 +95,19 @@ function grad_cost_G(Z::Array{Float,2},
     return J, gradJ, AtAg
 end
 
-function CG(Z::Array{Float,2},
-    F::Array{Float,2},
-    Y::Array{Float,2},
-    UBTMTy::Array{Float,2},
-    FBM::Array{Complex,3},
-    Mask::Array{Float,2},
-    nl:Int, nc::Int, r::Int,
-    tau::Float, q::Array{Float},
-    FDH::Array{Complex,3},
-    FDV::Array{Complex,3},
-    FDHC::Array{Complex,3},
-    FDVC::Array{Complex,3},
-    W::Array{Float})
+function CG(Z::Array{Float64,2},
+    F::Array{Float64,2},
+    Y::Array{Float64,2},
+    UBTMTy::Array{Float64,2},
+    FBM::Array{ComplexF64,3},
+    Mask::Array{Float64,2},
+    nl::Int, nc::Int, r::Int,
+    tau::Float64, q::Array{Float64},
+    FDH::Array{ComplexF64,3},
+    FDV::Array{ComplexF64,3},
+    FDHC::Array{ComplexF64,3},
+    FDVC::Array{ComplexF64,3},
+    W::Array{Float64})
 
     maxiter = 1000;
     tolgradnorm = 0.1;  %1e-6;   %0.1
@@ -137,7 +137,7 @@ function CG(Z::Array{Float,2},
 end
 
 
-function computeWeights(Y::Array{Float,2}, d::Array{Int}, sigmas::Float, nl::Int, method::String)
+function computeWeights(Y::Array{Float64,2}, d::Array{Int}, sigmas::Float64, nl::Int, method::String)
     hr_bands = d==1;
     hr_bands = findall(hr_bands)';
     for i=hr_bands
@@ -167,20 +167,20 @@ end
 
 
 function Zstep(
-    Y::Array{Float,2},
-    FBM::Array{Complex,3},
-    F::Array{Float,2},
-    tau::Float, nl:Int, nc::Int,
-    Z::Array{Float,2}
-    Mask::Array{Float,2},
-    q::Array{Float},
-    FDH::Array{Complex,3},
-    FDV::Array{Complex,3},
-    FDHC::Array{Complex,3},
-    FDVC::Array{Complex,3},
-    W::Array{Float},
-    Whalf::Array{Float},
-    tolgradnorm::Float)
+    Y::Array{Float64,2},
+    FBM::Array{ComplexF64,3},
+    F::Array{Float64,2},
+    tau::Float64, nl::Int, nc::Int,
+    Z::Array{Float64,2}
+    Mask::Array{Float64,2},
+    q::Array{Float64},
+    FDH::Array{ComplexF64,3},
+    FDV::Array{ComplexF64,3},
+    FDHC::Array{ComplexF64,3},
+    FDVC::Array{ComplexF64,3},
+    W::Array{Float64},
+    Whalf::Array{Float64},
+    tolgradnorm::Float64)
 
 
     r = size(F,2);
@@ -196,12 +196,12 @@ end
 
 
 
-function Fstep(F::Array{Float,2},
-        Z::Array{Float,2},
-        Y::Array{Float,2},
-        FBM::Array{Complex,3},
+function Fstep(F::Array{Float64,2},
+        Z::Array{Float64,2},
+        Y::Array{Float64,2},
+        FBM::Array{ComplexF64,3},
         nl::Int,nc::Int,
-        Mask::Array{Float,2})
+        Mask::Array{Float64,2})
      F0=F;#%   U; % initialization
      BTXhat =  ConvCM(F0*Z,FBM,nl);
      MBTXhat=Mask.*BTXhat;
@@ -257,8 +257,8 @@ function [Du]=egrad(F,A,ZBYT)
     return Du
 end
 
-function ERGAS(I1::Array{Float,3},
-    I2::Array{Float,3},
+function ERGAS(I1::Array{Float64,3},
+    I2::Array{Float64,3},
     ratio::Int)
 
     #I1 = double(I1);
@@ -276,12 +276,12 @@ function ERGAS(I1::Array{Float,3},
 end
 
 function  evaluate_performance(
-        Xm_im::Array{Float,3},
-        Xhat_im::Array{Float,3},
+        Xm_im::Array{Float64,3},
+        Xhat_im::Array{Float64,3},
         nl::Int,nc::Int,L::Int,
         limsub::Int,
         d::Array{Int},
-        av::Array{Float})
+        av::Array{Float64})
 
     Xhat_im = Xhat_im[limsub+1:end-limsub,limsub+1:end-limsub,:];
     Xhat_im = unnormaliseData(Xhat_im,av);

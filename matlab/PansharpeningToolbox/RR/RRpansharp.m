@@ -27,6 +27,9 @@
 %               default;
 %            q: penalty weights;
 %           X0: Initial value for X = G * F'.
+%     W_method: imgradient option to use to construct the W matrix:
+%               'original', 'sobel', or 'prewitt'
+%         dpot: derivative of potential function to use in regularization
 % 
 % Outputs:
 %    Xhat_im: estimated image (3D) at high resolution for each 
@@ -61,6 +64,8 @@ function Xhat_im = RRpansharp(Yim,varargin)
     end
     Gstep_only=0;
     GCV = 0;
+    W_method = 'original';
+    dpot = @(x) x;
     for i=1:2:(length(varargin)-1)
         switch varargin{i}
             case 'CDiter'
@@ -83,6 +88,10 @@ function Xhat_im = RRpansharp(Yim,varargin)
                 d = varargin{i+1};
             case 'mtf'
                 mtf = varargin{i+1};
+            case 'W_method'
+                W_method = varargin{i+1};
+            case 'dpot'
+                dpot = varargin{i+1};
         end
     end
     tic;
@@ -129,19 +138,19 @@ function Xhat_im = RRpansharp(Yim,varargin)
     [FDH,FDV,FDHC,FDVC] = createDiffkernels(nl,nc,r);
     % Compute weights
     sigmas = 1;
-    W = computeWeights(Y,d,sigmas,nl);
+    W = computeWeights(Y,d,sigmas,nl,W_method);
     Whalf=W.^(1/2);
     if( GCV == 1), Gstep_only=1; end
     if( Gstep_only ~= 0), CDiter=1; end
     for jCD=1:CDiter
-       [Z,Jcost(jCD),options]=Zstep(Y,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm);              
+       [Z,Jcost(jCD),options]=Zstep(Y,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm, dpot);              
        if(Gstep_only==0) 
            F1=Fstep(F,Z,Y,FBM,nl,nc,Mask);  
            F=F1;
        end
        if( GCV==1 )
             Ynoise = ( abs(Y) > 0 ) .* randn( size(Y) );
-            [Znoise]=Zstep(Ynoise,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm);
+            [Znoise]=Zstep(Ynoise,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm, dpot);
             HtHBXnoise = Mask.*ConvCM(F*Znoise,FBM,nl);
             Ynoise = Ynoise([2:end],:); 
             HtHBXnoise = HtHBXnoise([2:end],:);
@@ -174,11 +183,11 @@ function [Y,M,F]=initialization(Yim2,sdf,nl,nc,L,dx,dy,d,limsub,r)
 end
 
 
-function [Z, xcost,options]=Zstep(Y,FBM,F,tau,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
+function [Z, xcost,options]=Zstep(Y,FBM,F,tau,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm,dpot)
     r = size(F,2);
     n = nl*nc;     
     UBTMTy=F'*ConvCM(Y,conj(FBM),nl); 
-    [Z] = CG(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
+    [Z] = CG(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W,Whalf,dpot);
     xcost=1;
     options=[];    
 end      
@@ -387,16 +396,27 @@ end
 
 
 
-function W = computeWeights(Y,d,sigmas,nl)
+function W = computeWeights(Y,d,sigmas,nl,method)
 
+    if strcmp(method,'nothing')
+        W = ones([1 size(Y,2)]);
+        return
+    end
+    
     % As in eq. (14) and (15)
     % Compute weigts for each pixel based on HR bands
     hr_bands = d==1;
     hr_bands = find(hr_bands)';
     for i=hr_bands
-    %     grad(:,:,i) = imgradient(conv2im(Y(i,:),nl),'prewitt').^2;
-    %     Intermediate gives also good results compared to prewitt
-        grad(:,:,i) = imgradient(conv2im(Y(i,:),nl),'intermediate').^2;
+        switch method
+            case 'original' 
+                grad(:,:,i) = imgradient(conv2im(Y(i,:),nl),'intermediate').^2;
+            case 'sobel' 
+                grad(:,:,i) = (1/16)*(imgradient(conv2im(Y(i,:),nl),'sobel').^2);
+            case 'prewitt' 
+                grad(:,:,i) = (1/9)*(imgradient(conv2im(Y(i,:),nl),'prewitt').^2);
+                
+        end
     end
     grad = sqrt(max(grad,[],3));
     grad = grad / quantile(grad(:),0.95);
@@ -422,24 +442,34 @@ function X = conv2im(X,nl,nc,L)
     X = reshape(X',nl,nc,L);
 end
 
-function [J,gradJ,AtAg] = grad_cost_G(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W)
+function [J,gradJ,AtAg] = grad_cost_G(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W,Whalf,dpot)
     X=F*Z;
     BX=ConvCM(X,FBM,nl);
     HtHBX=Mask.*BX;
     ZH=ConvCM(Z,FDHC,nl);
-    Zv=ConvCM(Z,FDVC,nl);
-    ZHW=ZH.*W;
-    ZVW=Zv.*W;
-    grad_pen=ConvCM(ZHW,FDH,nl)+ConvCM(ZVW,FDV,nl);
+    ZV=ConvCM(Z,FDVC,nl);
+    ZHW=ZH.*Whalf;
+    ZVW=ZV.*Whalf;
+        
+    ZHW = dpot(ZHW);
+    ZVW = dpot(ZVW);
+    
+    ZHW=ZHW.*Whalf;
+    ZVW=ZVW.*Whalf;
+    
+    grad_pen_h = ConvCM(ZHW,FDH,nl);
+    grad_pen_v = ConvCM(ZVW,FDV,nl);
+    grad_pen = grad_pen_h + grad_pen_v;
+    
     AtAg = F'*ConvCM(HtHBX,conj(FBM),nl)+2*tau*(q*ones(1,nl*nc)).*grad_pen;
     gradJ=AtAg-UBTMTy;
     J = 1/2 * sum( sum( Z .* AtAg ) ) - sum( sum( Z.*UBTMTy ) );     
 end
 
-function [ Z ] = CG(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W)
+function [ Z ] = CG(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W,Whalf,dpot)
     maxiter = 1000;
     tolgradnorm = 0.1;%1e-6;    
-    [cost,grad] = grad_cost_G(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
+    [cost,grad] = grad_cost_G(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W,Whalf,dpot);
     gradnorm = norm(grad(:));
     iter = 0;
     res = -grad;
@@ -452,7 +482,7 @@ function [ Z ] = CG(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W)
             beta = ( res(:).' * res(:) ) / ( old_res(:).' * old_res(:) );
             desc_dir = res + beta * desc_dir;
         end
-        [~, ~, AtAp] = grad_cost_G(desc_dir,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
+        [~, ~, AtAp] = grad_cost_G(desc_dir,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W,Whalf,dpot);
         alpha = ( res(:).' * res(:) ) / ( desc_dir(:).' * AtAp(:) );
         Z1 = Z + alpha * desc_dir;
         old_res = res;

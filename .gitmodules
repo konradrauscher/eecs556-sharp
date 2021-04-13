@@ -1,0 +1,3 @@
+[submodule "matlab/S2Sharp"]
+	path = matlab/S2Sharp
+	url = https://github.com/konradrauscher/S2Sharp.git

@@ -56,7 +56,7 @@ function createConvKernel(sdf,d,nl,nc,L,dx,dy)
     
     for i in 1:L
         if d[i] >1
-            f = Kernel.gaussian(1) #TODO change this
+            f = Kernel.gaussian(3) #this will produce a 13x13 kernel which is close the example 12x12 needed
             
             #this function won't work.. not adaptable enough
             #need to create a 12x12 filter here...
@@ -92,7 +92,7 @@ function createConvKernelSubspace(sdf,nl,nc,L,dx,dy):
     ##this loop is nearly identical to whats happening above! this would be a good place to improve it
     for i in 1:L
         if sdf[i] < s2 # != would be a little better i think
-            f = Kernel.gaussian(1) #TODO change this 
+            f = Kernel.gaussian(3) #TODO change this 
             
             B[ (middlel-dy/2+1:middlel+dy/2)-d(i)/2+1, (middlec-dx/2+1:middlec+dx/2)-d(i)/2+1, i] = h
             B[:,:,i]=fftshift( B[:,:,i] )/sum(sum(B[:,:,i]))

@@ -3,6 +3,7 @@ using ImageTransformations
 using FFTW
 using ImageFiltering
 using Statistics
+include("john.jl")
 
 function initialization(Yim2::Array{Any}, sdf::Array{Float64},
     nl::Int,nc::Int,L::Int,
@@ -110,8 +111,8 @@ function CG(Z::Array{Float64,2},
     W::Array{Float64})
 
     maxiter = 1000;
-    tolgradnorm = 0.1;  %1e-6;   %0.1
-    [cost,grad] = grad_cost_G(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
+    tolgradnorm = 0.1;  #%1e-6;   %0.1
+    cost,grad = grad_cost_G(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
     gradnorm = norm(grad[:]);
     iter = 0;
     res = -grad;
@@ -124,7 +125,7 @@ function CG(Z::Array{Float64,2},
             beta = ( res[:]' * res[:] ) / ( old_res[:]' * old_res[:] );
             desc_dir = res + beta * desc_dir;
         end
-        [~, ~, AtAp] = grad_cost_G(desc_dir,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
+        _, _, AtAp = grad_cost_G(desc_dir,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
         alpha = ( res[:]' * res[:] ) / ( desc_dir[:]' * AtAp[:] );
         Z1 = Z + alpha * desc_dir;
         old_res = res;
@@ -157,8 +158,8 @@ function computeWeights(Y::Array{Float64,2}, d::Array{Int}, sigmas::Float64, nl:
     grad = sqrt(max(grad,dims=3));
     grad = grad / quantile(grad(:),0.95);
 
-    Wim = exp(-grad.^2/2/sigmas^2);
-    Wim(Wim<0.5) = 0.5;
+    Wim = exp.(-grad.^2/2/sigmas^2);
+    Wim[Wim.<0.5] = 0.5;
 
     W = conv2mat(Wim,nl);
 
@@ -171,7 +172,7 @@ function Zstep(
     FBM::Array{ComplexF64,3},
     F::Array{Float64,2},
     tau::Float64, nl::Int, nc::Int,
-    Z::Array{Float64,2}
+    Z::Array{Float64,2},
     Mask::Array{Float64,2},
     q::Array{Float64},
     FDH::Array{ComplexF64,3},
@@ -241,13 +242,13 @@ function costF(F,MBZT,Y)
     for i=1:L,
         fi=F[i,:]';
         yi=Y[i,:]';
-        Ju=Ju+0.5*norm(MBZT[:,:,i]'*fi-yi,'fro')^2;
+        Ju=Ju+0.5*norm(MBZT[:,:,i]'*fi-yi,"fro")^2;
     end
 
     return Ju
 end
 
-function [Du]=egrad(F,A,ZBYT)
+function  egrad(F,A,ZBYT)
     p=size(A,3);
     Du=0*F;
     for ii=1:p
@@ -296,13 +297,13 @@ function  evaluate_performance(
         Xhat = conv2mat(Xhat_im);
         #% SRE - signal to reconstrution error
         for i=1:6
-            SRE(i,1) = 10*log10(sum(X[i,:].^2)/ sum((Xhat(ind(i),:)-X[i,:]).^2));
-            SSIM_index(i,1) = ssim(Xm_im[:,:,i],Xhat_im(:,:,ind(i)));
+            SRE[i,1] = 10*log10(sum(X[i,:].^2)/ sum((Xhat(ind(i),:)-X[i,:]).^2));
+            SSIM_index[i,1] = ssim(Xm_im[:,:,i],Xhat_im(:,:,ind(i)));
         end
         aSSIM=mean(SSIM_index);
         ERGAS_20m = ERGAS(Xm_im,Xhat_im[:,:,ind],2);
         ERGAS_60m = NaN;
-        RMSE = norm(X - Xhat[ind,:],'fro') / size(X,2);
+        RMSE = norm(X - Xhat[ind,:],"fro") / size(X,2);
     else
         ind=findall(d .== 2 | d .== 6);
         SAMm=SAM(Xm_im[:,:,ind],Xhat_im[:,:,ind]);
@@ -313,13 +314,13 @@ function  evaluate_performance(
         Xhat = conv2mat(Xhat_im);
         #% SRE - signal to reconstrution error
         for i=1:L
-            SRE(i,1) = 10*log10(sum(X[i,:].^2)/ sum((Xhat[i,:]-X[i,:]).^2));
-            SSIM_index(i,1) = ssim(Xm_im[:,:,i],Xhat_im[:,:,i]);
+            SRE[i,1] = 10*log10(sum(X[i,:].^2)/ sum((Xhat[i,:]-X[i,:]).^2));
+            SSIM_index[i,1] = ssim(Xm_im[:,:,i],Xhat_im[:,:,i]);
         end
         aSSIM=mean(SSIM_index(ind));
         ERGAS_20m = ERGAS(Xm_im[:,:,ind],Xhat_im[:,:,ind],2);
         ERGAS_60m = ERGAS(Xm_im[:,:,ind2],Xhat_im[:,:,ind2],6);
-        RMSE = norm(X[ind,:] - Xhat[ind,:],'fro') / size(X,2);
+        RMSE = norm(X[ind,:] - Xhat[ind,:],"frp") / size(X,2);
     end
 
 

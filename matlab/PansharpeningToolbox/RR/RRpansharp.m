@@ -468,14 +468,14 @@ end
 
 function [ Z ] = CG(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W,Whalf,dpot)
     maxiter = 1000;
-    tolgradnorm = 0.1;%1e-6;    
+    tolgradnorm = 1;%1e-6;    
     [cost,grad] = grad_cost_G(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W,Whalf,dpot);
     gradnorm = norm(grad(:));
     iter = 0;
     res = -grad;
     while ( gradnorm > tolgradnorm & iter < maxiter ) 
         iter = iter + 1;
-       % fprintf('%5d\t%+.16e\t%.8e\n', iter, cost, gradnorm);      
+        fprintf('%5d\t%+.16e\t%.8e\n', iter, cost, gradnorm);      
         if( iter == 1 )
             desc_dir = res;
         else

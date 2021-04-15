@@ -52,8 +52,8 @@ function S2sharp(Yim,varargin)
             r = next
         elseif current == "lambda"
             lambda = next
-        elseif current == "XM_im"
-            XM_im = next
+        elseif current == "Xm_im"
+            Xm_im = next
         elseif current == "q"
             q = next
         elseif current == "X0"
@@ -126,6 +126,8 @@ function S2sharp(Yim,varargin)
     end
 
     FDH,FDV,FDHC,FDVC = createDiffkernels(nl,nc,r)
+    sigmas = 1.0
+    W = computeWeights(Y,d,sigmas,nl)
     Whalf = sqrt.(W)
 
     if GCV==1
@@ -135,6 +137,8 @@ function S2sharp(Yim,varargin)
     if Gstep_only ≈ 1
         CDiter=1
     end
+
+    # Konrad 4/14: stopped here
 
     for jCD in 1:CDiter
         Z, Jcost[jCD], options = Zstep(Y,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
@@ -226,7 +230,7 @@ for i = 1:L
     maux = zeros(d[i],d[i])
     maux[1,1] = 1
     M[:,:,i] = kron(im,maux)
-    indexes[i] = findall(M[:,:,i] == 1)
+    indexes[i] = findall(!iszero,vec(M[:,:,i]))
     Y[i,indexes[i]] = conv2mat(Yim[i],nl÷d[i],nc÷d[i],1)
 end
 return M, Y
@@ -243,7 +247,7 @@ function ConvCM(X::Array{Float64,2}, FKM::Array{ComplexF64,3}, nl::Int, nc::Int 
 end
 
 
-function conv2mat(X,nl::Int,nc::Int,L::Int)
+function conv2mat(X,nl::Int=0,nc::Int=0,L::Int=0)
     if ndims(X) == 3
         nl,nc,L = size(X);
         X = reshape(X,nl*nc,L)';
@@ -327,9 +331,12 @@ function CG(Z::Array{Float64,2},
 end
 
 
-function computeWeights(Y::Array{Float64,2}, d::Array{Int}, sigmas::Float64, nl::Int, method::String)
+function computeWeights(Y::Array{Float64,2}, d::Array{Int}, sigmas::Float64, nl::Int, method::String="")
     hr_bands = d==1;
     hr_bands = findall(hr_bands)';
+    L = size(Y,1)
+    nc = size(Y,2)÷nl
+    grad = zeros(nl,nc,L)
     for i=hr_bands
         #TODO get intermediate to work
          Gy, Gx = imgradients(conv2im(Y[i,:],nl),KernelFactors.sobel);
@@ -344,11 +351,11 @@ function computeWeights(Y::Array{Float64,2}, d::Array{Int}, sigmas::Float64, nl:
         #
         # end
     end
-    grad = sqrt(max(grad,dims=3));
-    grad = grad / quantile(grad(:),0.95);
+    grad = sqrt.(maximum(grad,dims=3));
+    grad = grad / quantile(grad[:],0.95);
 
     Wim = exp.(-grad.^2/2/sigmas^2);
-    Wim[Wim.<0.5] = 0.5;
+    Wim[Wim.<0.5] .= 0.5;
 
     W = conv2mat(Wim,nl);
 
@@ -527,8 +534,8 @@ function createDiffkernels(nl,nc,r)
     fft_dh = fft(dh)
     fft_dv = fft(dv)
 
-    FDH = zeros(nl,nc,r)
-    FDV = zeros(nl,nc,r)
+    FDH = zeros(ComplexF64,nl,nc,r)
+    FDV = zeros(ComplexF64,nl,nc,r)
 
     for i in 1:r
         FDH[:,:,i] = fft_dh

@@ -5,6 +5,9 @@ using LinearAlgebra
 using ImageTransformations
 using ImageFiltering
 using Statistics
+using Manopt
+using Manifolds
+using Printf
 
 function S2sharp(Yim,varargin)
 #   Input:
@@ -40,8 +43,6 @@ function S2sharp(Yim,varargin)
         q = (zeros(r,1).+1)'
     end
 
-    output = Dict("SAMm" => [], "SAMm_2m" => [], "SRE" => [], "GVCscore" => [], "ERGAS_20m" => [], "ERGAS_60m" => [], "SSIM" => [], "aSSIM" => [], "RMSE" => [], "Time" => [] )
-
     for i in 1:2:(length(varargin))
         current = varargin[i]
         next = varargin[i+1]
@@ -70,6 +71,13 @@ function S2sharp(Yim,varargin)
         end
     end
 
+    vn() = Vector{Any}(nothing, CDiter)
+
+    output = Dict("SAMm" => vn(), "SAMm_2m" => vn(), "SRE" => vn(), "GVCscore" => vn(),
+        "ERGAS_20m" => vn(), "ERGAS_60m" => vn(), "SSIM" => vn(), "aSSIM" => vn(),
+        "RMSE" => vn(), "Time" => vn() )
+
+
     #quick sanity checks here
     if length(q) != r
         println("The length of q has to match r")
@@ -93,10 +101,10 @@ function S2sharp(Yim,varargin)
     Yim2, av = normaliseData(Yim)
 
     #subsampling factors (in pixels)
-    d = [6 1 1 1 2 2 2 1 2 6 2 2]#'
+    d = vec([6 1 1 1 2 2 2 1 2 6 2 2])#'
 
     # convolution  operators (Gaussian convolution filters), taken from ref [5] from the Ulfarsson
-    mtf = [ .32 .26 .28 .24 .38 .34 .34 .26 .33 .26 .22 .23]
+    mtf = vec([ .32 .26 .28 .24 .38 .34 .34 .26 .33 .26 .22 .23])
 
     sdf = d.*sqrt.(-2*log.(mtf)/(π^2))
 
@@ -112,7 +120,7 @@ function S2sharp(Yim,varargin)
     dy=12
     FBM = createConvKernel(sdf,d,nl,nc,L,dx,dy)
     Y,M,F = initialization(Yim2,sdf,nl,nc,L,dx,dy,d,limsub,r)
-    
+
     Mask = vcat(reshape(M,(n,L))')
 
     if X0 == ""
@@ -128,8 +136,7 @@ function S2sharp(Yim,varargin)
 
     FDH,FDV,FDHC,FDVC = createDiffkernels(nl,nc,r)
     sigmas = 1.0
-    W = vcat(computeWeights(Y,d,sigmas,nl))
-
+    W = collect(computeWeights(Y,d,sigmas,nl))
     Whalf = sqrt.(W)
 
     if GCV==1
@@ -144,20 +151,21 @@ function S2sharp(Yim,varargin)
 
     Jcost = zeros(CDiter)
     for jCD in 1:CDiter
+        @show jCD
         # mask is failing
         Z, Jcost[jCD], options = Zstep(Y,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
 
 #         println(Z)
 #         println(size(Z))
 #         println(typeof(Z))
-        
+
         if(Gstep_only==0)
            F1=Fstep(F,Z,Y,FBM,nl,nc,Mask)
            F=F1
         end
 
         if( GCV==1 )
-        Ynoise = ( abs(Y) > 0 ) .* randn( size(Y) )
+            Ynoise = ( abs(Y) > 0 ) .* randn( size(Y) )
 
             Znoise = Zstep(Ynoise,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
 
@@ -177,8 +185,11 @@ function S2sharp(Yim,varargin)
         #output["Time"] = [toc] unclear where they get this from in the Matlab
 
         if Xm_im != [] #idk if this is good syntax for isempty, but its the best i have
-            Xhat_im = conv2im(F*Z,nl,nc,L)
-            output["SAMm"], output["SAMm_2m"], output["SRE"], output["RMSE"], output["SSIM"], output["aSSIM"],output["ERGAS_20m"], output["ERGAS_60m"] = evaluate_performance(Xm_im,Xhat_im,nl,nc,L,limsub,d,av);
+            Xhat_im = collect(conv2im(F*Z,nl,nc,L))
+            output["SAMm"][jCD], output["SAMm_2m"][jCD], output["SRE"][jCD],
+                 output["RMSE"][jCD], output["SSIM"][jCD], output["aSSIM"][jCD],
+                 output["ERGAS_20m"][jCD], output["ERGAS_60m"][jCD] =
+                 evaluate_performance(Xm_im,Xhat_im,nl,nc,L,limsub,d,av);
         end
     end
     Xhat_im = conv2im(F*Z,nl,nc,L)
@@ -207,9 +218,9 @@ function S2sharp(Yim,varargin)
 
     return Xhat_im, output
 end
-function initialization(Yim2::Array{Any}, sdf::Array{Float64},
+function initialization(Yim2::Array{Any,1}, sdf::Array{Float64,1},
     nl::Int,nc::Int,L::Int,
-    dx::Int, dy::Int, d::Array{Int}, limsub::Int,r::Int)
+    dx::Int, dy::Int, d::Array{Int,1}, limsub::Int,r::Int)
 
     FBM2 = createConvKernelSubspace(sdf,nl,nc,L,dx,dy)
 
@@ -229,9 +240,9 @@ function initialization(Yim2::Array{Any}, sdf::Array{Float64},
     return Y, M, F
 end
 
-function createSubsampling(Yim::Array{Any}, d::Array{Int}, nl::Int, nc::Int, L::Int)
+function createSubsampling(Yim::Array{Any,1}, d::Array{Int,1}, nl::Int, nc::Int, L::Int)
 M = zeros(nl, nc, L)
-indexes = Array{Any}(undef,L)
+indexes = Array{Any,1}(undef,L)
 Y = zeros(L,nl*nc)
 for i = 1:L
     im = ones(nl÷d[i],nc÷d[i])
@@ -275,12 +286,12 @@ function grad_cost_G(Z::Array{Float64,2},
     FBM::Array{ComplexF64,3},
     Mask::Array{Float64,2},
     nl::Int, nc::Int, r::Int,
-    tau::Float64, q::Array{Float64},
+    tau::Float64, q::Array{Float64,1},
     FDH::Array{ComplexF64,3},
     FDV::Array{ComplexF64,3},
     FDHC::Array{ComplexF64,3},
     FDVC::Array{ComplexF64,3},
-    W::Array{Float64})
+    W::Array{Float64,2})
 
     X = F*Z
     BX=ConvCM(X,FBM,nl);
@@ -304,12 +315,12 @@ function CG(Z::Array{Float64,2},
     FBM::Array{ComplexF64,3},
     Mask::Array{Float64,2},
     nl::Int, nc::Int, r::Int,
-    tau::Float64, q::Array{Float64},
+    tau::Float64, q::Array{Float64,1},
     FDH::Array{ComplexF64,3},
     FDV::Array{ComplexF64,3},
     FDHC::Array{ComplexF64,3},
     FDVC::Array{ComplexF64,3},
-    W::Array{Float64})
+    W::Array{Float64,2})
 
     maxiter = 1000;
     tolgradnorm = 0.1;  #%1e-6;   %0.1
@@ -319,7 +330,7 @@ function CG(Z::Array{Float64,2},
     res = -grad;
     while ( gradnorm > tolgradnorm && iter < maxiter )
         iter = iter + 1;
-       # fprintf('%5d\t%+.16e\t%.8e\n', iter, cost, gradnorm);
+        @printf "%5d\t%+.16e\t%.8e\n" iter cost gradnorm;
         if( iter == 1 )
             desc_dir = res;
         else
@@ -336,10 +347,11 @@ function CG(Z::Array{Float64,2},
         Z = Z1;
     end
 
+    return Z
 end
 
 
-function computeWeights(Y::Array{Float64,2}, d::Array{Int}, sigmas::Float64, nl::Int, method::String="")
+function computeWeights(Y::Array{Float64,2}, d::Array{Int,1}, sigmas::Float64, nl::Int, method::String="")
     hr_bands = d==1;
     hr_bands = findall(hr_bands)';
     L = size(Y,1)
@@ -378,13 +390,13 @@ function Zstep(
     tau::Float64, nl::Int, nc::Int,
     Z::Array{Float64,2},
     Mask::Array{Float64,2},
-    q::Array{Float64},
+    q::Array{Float64,1},
     FDH::Array{ComplexF64,3},
     FDV::Array{ComplexF64,3},
     FDHC::Array{ComplexF64,3},
     FDVC::Array{ComplexF64,3},
-    W::Array{Float64},
-    Whalf::Array{Float64},
+    W::Array{Float64,2},
+    Whalf::Array{Float64,2},
     tolgradnorm::Float64)
 
 
@@ -411,19 +423,29 @@ function Fstep(F::Array{Float64,2},
      BTXhat =  ConvCM(F0*Z,FBM,nl);
      MBTXhat=Mask.*BTXhat;
      L, r = size(F);
+     n = nl*nc
+     MBZT = zeros(r,n,L)
+     A = zeros(r,r,L)
+     ZBMTy = zeros(r,L)
      for ii=1:L
-        MBZT[:,:,ii] = repeat(Mask(ii,:),[r,1]).*
-                        ConvCM(Z,repeat(FBM[:,:,ii],outer=[1,1,r]),outer=nl);
+         #@show size(Mask)
+         #@show size(repeat(Mask[ii,:]',outer=(r,1)))
+         #@show size(FBM)
+         #@show size(Z)
+         #@show size(ConvCM(Z,repeat(FBM[:,:,ii],outer=(1,1,r)),nl))
+        MBZT[:,:,ii] = repeat(Mask[ii,:]',outer=(r,1)).*
+                        ConvCM(Z,repeat(FBM[:,:,ii],outer=(1,1,r)),nl);
         A[:,:,ii]=MBZT[:,:,ii]*MBZT[:,:,ii]';
-        ZBMTy[:,ii]=MBZT[:,:,ii]*Y[ii,:]';
+        ZBMTy[:,ii]=MBZT[:,:,ii]*Y[ii,:];
      end
      ZBYT=ZBMTy';#   BTY*Z';
 
+     #You may need to install Manifolds package for this to work
      manifold = Manopt.Stiefel(L,r)
-     cost = F -> costF(F, MBZT, Y)
-     grad = F -> egrad(F,A,ZBYT)
+     cost(_, F) = costF(F, MBZT, Y)
+     grad(_, F) = egrad(F, A, ZBYT)
 
-     F1 = Manopt.trust_regions(manifold, cost, grad,
+     F1 = Manopt.trust_regions(manifold, cost, grad, missing, F0;
             stopping_criterion = StopWhenGradientNormLess(1e-2))
 
     return F1
@@ -456,7 +478,7 @@ function  egrad(F,A,ZBYT)
     p=size(A,3);
     Du=0*F;
     for ii=1:p
-        Du[ii,:]=F[ii,:]*A[:,:,ii]'-ZBYT[ii,:];
+        Du[ii,:]=F[ii,:]'*A[:,:,ii]'-ZBYT[ii,:]';
     end
 
     return Du
@@ -485,46 +507,52 @@ function  evaluate_performance(
         Xhat_im::Array{Float64,3},
         nl::Int,nc::Int,L::Int,
         limsub::Int,
-        d::Array{Int},
-        av::Array{Float64})
+        d::Array{Int,1},
+        av::Array{Float64,1})
 
     Xhat_im = Xhat_im[limsub+1:end-limsub,limsub+1:end-limsub,:];
     Xhat_im = unnormaliseData(Xhat_im,av);
-    Xhat=reshape(Xhat_im,[(nl-4)*(nc-4),L]);
+    Xhat=reshape(Xhat_im,((nl-4)*(nc-4),L));
     #% Xm_im is the ground truth image
     Xm_im = Xm_im[limsub+1:end-limsub,limsub+1:end-limsub,:];
     if ( size(Xm_im,3) == 6 ) #% Reduced Resolution
         ind = findall( d==2 );
-        SAMm=SAM(Xm_im,Xhat_im[:,:,ind]);
+        SAMm=0#SAM(Xm_im,Xhat_im[:,:,ind]);
         SAMm_2m=SAMm;
         X = conv2mat(Xm_im);
         Xhat = conv2mat(Xhat_im);
+        SRE = zeros(6,1)
+        SSIM_index = zeros(6,1)
         #% SRE - signal to reconstrution error
         for i=1:6
             SRE[i,1] = 10*log10(sum(X[i,:].^2)/ sum((Xhat(ind(i),:)-X[i,:]).^2));
-            SSIM_index[i,1] = ssim(Xm_im[:,:,i],Xhat_im(:,:,ind(i)));
+            SSIM_index[i,1] = 0#ssim(Xm_im[:,:,i],Xhat_im(:,:,ind(i)));
         end
         aSSIM=mean(SSIM_index);
         ERGAS_20m = ERGAS(Xm_im,Xhat_im[:,:,ind],2);
         ERGAS_60m = NaN;
-        RMSE = norm(X - Xhat[ind,:],"fro") / size(X,2);
+        RMSE = norm(X - Xhat[ind,:]) / size(X,2);
     else
-        ind=findall(d .== 2 | d .== 6);
-        SAMm=SAM(Xm_im[:,:,ind],Xhat_im[:,:,ind]);
+        ind = findall((d .==2) .| (d .== 6))
+        #@show ind
+        #ind = [ii[2] for ii in ind]#?????
+        SAMm=0#SAM(Xm_im[:,:,ind],Xhat_im[:,:,ind]);
         ind2=findall(d .== 2);
-        SAMm_2m=SAM(Xm_im[:,:,ind2],Xhat_im[:,:,ind2]);
+        SAMm_2m=0#SAM(Xm_im[:,:,ind2],Xhat_im[:,:,ind2]);
         ind6=findall(d .== 6);
         X = conv2mat(Xm_im);
         Xhat = conv2mat(Xhat_im);
         #% SRE - signal to reconstrution error
+        SRE = zeros(L,1)
+        SSIM_index = zeros(L,1)
         for i=1:L
             SRE[i,1] = 10*log10(sum(X[i,:].^2)/ sum((Xhat[i,:]-X[i,:]).^2));
-            SSIM_index[i,1] = ssim(Xm_im[:,:,i],Xhat_im[:,:,i]);
+            SSIM_index[i,1] = 0#ssim(Xm_im[:,:,i],Xhat_im[:,:,i]);
         end
-        aSSIM=mean(SSIM_index(ind));
+        aSSIM=mean(SSIM_index);
         ERGAS_20m = ERGAS(Xm_im[:,:,ind],Xhat_im[:,:,ind],2);
         ERGAS_60m = ERGAS(Xm_im[:,:,ind2],Xhat_im[:,:,ind2],6);
-        RMSE = norm(X[ind,:] - Xhat[ind,:],"frp") / size(X,2);
+        RMSE = norm(X[ind,:] .- Xhat[ind,:]) / size(X,2);
     end
 
 
@@ -556,7 +584,7 @@ function createDiffkernels(nl,nc,r)
 end
 
 
-function normaliseData(Yim::Array{Any})
+function normaliseData(Yim::Array{Any,1})
     #Yim is the array that has all the different images in it
 
     nb = length(Yim)
@@ -662,7 +690,16 @@ function conv2mat(X,nl::Int,nc::Int,L::Int)
     return X
 end
 
-function unnormaliseData(Yim::Array{Any},av::Array{Float64})
+function unnormaliseData(Xim::Array{Float64,3},av::Array{Float64,1})
+
+    Xim2 = zeros(size(Xim))
+    nb = size(Xim,3)
+    for i in 1:nb
+        Xim2[:,:,i] = sqrt.(Xim[:,:,i].^2 * av[i])
+    end
+    return Xim2
+end
+function unnormaliseData(Yim::Array{Any, 1},av::Array{Float64,1})
     # function [Yim] = unnormaliseData(Yim, av)
     #     if iscell(Yim)
     #         % mean squared power = 1
@@ -678,12 +715,14 @@ function unnormaliseData(Yim::Array{Any},av::Array{Float64})
     #     end
     # end
 
-    nb,=size(Yim)
+    nb, =size(Yim)
+
+    Yim2 = []
 
     for i in 1:nb
-        Yim[:,:,i] = sqrt.(Yim[i].^2 * av[i])
+        append!(Yim2,sqrt.(Yim[i].^2 * av[i]))
     end
-    return Yim
+    return Yim2
 end
 
 

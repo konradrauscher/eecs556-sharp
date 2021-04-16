@@ -4,7 +4,7 @@ include("S2Sharp.jl")
 
 file = matopen("../matlab/S2Sharp/Data/Aviris_cell_3.mat")
 Xm_im = read(file, "Xm_im")
-Yim = read(file, "Yim")
+Yim = vec(read(file, "Yim"))
 close(file)
 
 r = 8;# % subspace dimension / the rank

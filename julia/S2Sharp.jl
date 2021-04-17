@@ -1,6 +1,7 @@
 import FFTW: fft, ifft, fftshift, ifftshift
 using Statistics: mean
 using ImageFiltering
+using Images
 using LinearAlgebra
 using ImageTransformations
 using ImageFiltering
@@ -233,7 +234,7 @@ function initialization(Yim2::Array{Any,1}, sdf::Array{Float64,1},
         Ylim[:,:,i] = imresize(Yim2[i], nl, nc)
     end
 
-    Y2im = real.(ifft(fft(Ylim).*FBM2))
+    Y2im = real.(ifft2(fft2(Ylim).*FBM2))
     Y2tr = Y2im[limsub+1:end-limsub,limsub+1:end-limsub,:]
     Y2n = reshape(Y2tr,(nl-4)*(nc-4),L)
     F, dd, P = svd(Y2n')#,"econ")
@@ -264,7 +265,7 @@ function ConvCM(X::Array{Float64,2}, FKM::Array{ComplexF64,3}, nl::Int, nc::Int 
         L, n = size(X)
         nc = n ÷ nl
     end
-    X = conv2mat(real.(ifft(fft(conv2im(X,nl,nc,L)).*FKM)))
+    X = conv2mat(real.(ifft2(fft2(conv2im(X,nl,nc,L)).*FKM)))
     return X
 end
 
@@ -566,7 +567,7 @@ function  evaluate_performance(
         #% SRE - signal to reconstrution error
         for i=1:6
             SRE[i,1] = 10*log10(sum(X[i,:].^2)/ sum((Xhat(ind(i),:)-X[i,:]).^2));
-            SSIM_index[i,1] = 0#ssim(Xm_im[:,:,i],Xhat_im(:,:,ind(i)));
+            SSIM_index[i,1] = assess_ssim(Xm_im[:,:,i],Xhat_im(:,:,ind(i)));
         end
         aSSIM=mean(SSIM_index);
         ERGAS_20m = ERGAS(Xm_im,Xhat_im[:,:,ind],2);
@@ -587,7 +588,7 @@ function  evaluate_performance(
         SSIM_index = zeros(L,1)
         for i=1:L
             SRE[i,1] = 10*log10(sum(X[i,:].^2)/ sum((Xhat[i,:]-X[i,:]).^2));
-            SSIM_index[i,1] = 0#ssim(Xm_im[:,:,i],Xhat_im[:,:,i]);
+            SSIM_index[i,1] = assess_ssim(Xm_im[:,:,i],Xhat_im[:,:,i]);
         end
         aSSIM=mean(SSIM_index);
         ERGAS_20m = ERGAS(Xm_im[:,:,ind],Xhat_im[:,:,ind],2);
@@ -607,8 +608,8 @@ function createDiffkernels(nl,nc,r)
     dv[1,1]=1
     dv[nl,1]=-1
 
-    fft_dh = fft(dh)
-    fft_dv = fft(dv)
+    fft_dh = fft2(dh)
+    fft_dv = fft2(dv)
 
     FDH = zeros(ComplexF64,nl,nc,r)
     FDV = zeros(ComplexF64,nl,nc,r)
@@ -629,6 +630,7 @@ function normaliseData(Yim::Array{Any,1})
 
     nb = length(Yim)
     av = zeros(nb)
+    Yim = deepcopy(Yim)
 
     #TODO see what this other case even means
     for i in 1:nb
@@ -651,20 +653,22 @@ function createConvKernel(sdf,d,nl,nc,L,dx,dy)
 
     for i in 1:L
         if d[i] >1
-            h = Kernel.gaussian(3) #this will produce a 13x13 kernel which is close the example 12x12 needed
+            #h = Kernel.gaussian(3) #this will produce a 13x13 kernel which is close the example 12x12 needed
 
-            h = imresize(h,12,12)# HACK
+            h = Kernel.gaussian((sdf[i],sdf[i]),(dx+1,dy+1))
+            #h = imresize(h,dx,dy)# HACK
 
             #this function won't work.. not adaptable enough
             #need to create a 12x12 filter here...
 
-            B[(middlel-dy÷2+1:middlel+dy÷2) .- (d[i]÷2) .+ 1 , (middlec-dx÷2+1:middlec+dx÷2) .- (d[i]÷2) .+ 1, i] = h #not sure about this line here
+            #B[(middlel-dy÷2+1:middlel+dy÷2) .- (d[i]÷2) .+ 1 , (middlec-dx÷2+1:middlec+dx÷2) .- (d[i]÷2) .+ 1, i] = h #not sure about this line here
+            B[(middlel-dy÷2:middlel+dy÷2) .- (d[i]÷2) .+ 1 , (middlec-dx÷2:middlec+dx÷2) .- (d[i]÷2) .+ 1, i] = h
 
             B[:,:,i]=fftshift( B[:,:,i] )/sum(sum(B[:,:,i]))
-            FBM[:,:,i] = fft(B[:,:,i])
+            FBM[:,:,i] = fft2(B[:,:,i])
         else
             B[1,1,i]=1
-            FBM[:,:,i]=fft(B[:,:,i])
+            FBM[:,:,i]=fft2(B[:,:,i])
         end
     end
 
@@ -674,8 +678,8 @@ end
 
 
 function createConvKernelSubspace(sdf,nl,nc,L,dx,dy)
-    middlel=(nl+1)÷2
-    middlec=(nc+1)÷2
+    middlel=Int(round((nl+1)/2,RoundNearestTiesUp))
+    middlec=Int(round((nc+1)/2,RoundNearestTiesUp))
 
     dx = dx+1
     dy = dy+1
@@ -690,14 +694,16 @@ function createConvKernelSubspace(sdf,nl,nc,L,dx,dy)
     for i in 1:L
         if sdf[i] < s2 # != would be a little better i think
 
-            h = Kernel.gaussian(3) #this will produce a 13x13 kernel which is close the example 12x12 needed
+            σ = sqrt(s2^2 - sdf[i]^2)
+            h = Kernel.gaussian((σ,σ),(dx,dy))
+            #h = Kernel.gaussian(3) #this will produce a 13x13 kernel which is close the example 12x12 needed
 
             B[middlel-(dy-1)÷2:middlel+(dy-1)÷2,middlec-(dx-1)÷2:middlec+(dx-1)÷2,i] = h;
             B[:,:,i]=fftshift( B[:,:,i] )/sum(sum(B[:,:,i]))
-            FBM2[:,:,i] = fft(B[:,:,i])
+            FBM2[:,:,i] = fft2(B[:,:,i])
         else
             B[1,1,i]=1
-            FBM2[:,:,i]=fft(B[:,:,i])
+            FBM2[:,:,i]=fft2(B[:,:,i])
         end
 
     end
@@ -792,3 +798,6 @@ function conv2im(X,nl,nc=0,L=0)
 
     return reshape(X',(nl,nc,L))
 end
+
+fft2(X) = fft(X,(1,2))
+ifft2(X) = ifft(X,(1,2))

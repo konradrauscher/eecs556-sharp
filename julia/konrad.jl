@@ -3,7 +3,6 @@ using ImageTransformations
 using FFTW
 using ImageFiltering
 using Statistics
-include("john.jl")
 
 function initialization(Yim2::Array{Any}, sdf::Array{Float64},
     nl::Int,nc::Int,L::Int,

@@ -1,5 +1,8 @@
 using MAT
-
+#TODO for anyone using this: change the paths here and in matlabInit.m to match
+#your matlab installation and folders for this project
+ENV["MATLAB_HOME"] = "C:\\Program Files\\MATLAB\\R2020b"
+ENV["PATH"] = "C:\\Program Files\\MATLAB\\R2020b\\bin\\win64;" * ENV["PATH"]
 include("S2Sharp.jl")
 
 file = matopen("../matlab/S2Sharp/Data/Aviris_cell_3.mat")

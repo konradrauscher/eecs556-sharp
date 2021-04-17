@@ -8,6 +8,8 @@ using Statistics
 using Manopt
 using Manifolds
 using Printf
+using MATLAB # :(
+MATLAB.__init__()#absolutely unbelievable that I have to put this!!!
 
 function S2sharp(Yim,varargin)
 #   Input:
@@ -77,6 +79,7 @@ function S2sharp(Yim,varargin)
         "ERGAS_20m" => vn(), "ERGAS_60m" => vn(), "SSIM" => vn(), "aSSIM" => vn(),
         "RMSE" => vn(), "Time" => vn() )
 
+    init_matlab()
 
     #quick sanity checks here
     if length(q) != r
@@ -160,7 +163,7 @@ function S2sharp(Yim,varargin)
 #         println(typeof(Z))
 
         if(Gstep_only==0)
-           F1=Fstep(F,Z,Y,FBM,nl,nc,Mask)
+           F1=Fstep_matlab(F,Z,Y,FBM,nl,nc,Mask)
            F=F1
         end
 
@@ -270,14 +273,35 @@ function conv2mat(X,nl::Int=0,nc::Int=0,L::Int=0)
     if ndims(X) == 3
         nl,nc,L = size(X);
         X = reshape(X,nl*nc,L)';
-    elseif ndims(squeeze(X)) == 2
+    elseif ndims(X) == 2
         L = 1;
         nl,nc = size(X);
         X = reshape(X,nl*nc,L)';
     end
     return X
 end
-
+# function conv2mat(X,nl::Int,nc::Int,L::Int)
+#     # function X = conv2mat(X,nl,nc,L)
+#     #     if ndims(X) == 3
+#     #         [nl,nc,L] = size(X);
+#     #         X = reshape(X,nl*nc,L)';
+#     #     elseif ndims(squeeze(X)) == 2
+#     #         L = 1;
+#     #         [nl,nc] = size(X);
+#     #         X = reshape(X,nl*nc,L)';
+#     #     end
+#     # end
+#
+#     if ndims(X) == 3
+#         nl,nc,L = size(X)
+#         X = reshape(X,nl*nc,L)'
+#         else #ndims(squeeze(X)) == 2 #unsure if squeeze() is in image transformations
+#         L = 1
+#         nl,nc = size(X)
+#         X = reshape(X,nl*nc,L)'
+#     end
+#     return X
+# end
 
 function grad_cost_G(Z::Array{Float64,2},
     F::Array{Float64,2},
@@ -328,6 +352,8 @@ function CG(Z::Array{Float64,2},
     gradnorm = norm(grad[:]);
     iter = 0;
     res = -grad;
+    old_res = nothing
+    desc_dir = nothing
     while ( gradnorm > tolgradnorm && iter < maxiter )
         iter = iter + 1;
         @printf "%5d\t%+.16e\t%.8e\n" iter cost gradnorm;
@@ -337,7 +363,7 @@ function CG(Z::Array{Float64,2},
             beta = ( res[:]' * res[:] ) / ( old_res[:]' * old_res[:] );
             desc_dir = res + beta * desc_dir;
         end
-        _, _, AtAp = grad_cost_G(desc_dir,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
+        cost, _, AtAp = grad_cost_G(desc_dir,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
         alpha = ( res[:]' * res[:] ) / ( desc_dir[:]' * AtAp[:] );
         Z1 = Z + alpha * desc_dir;
         old_res = res;
@@ -352,7 +378,7 @@ end
 
 
 function computeWeights(Y::Array{Float64,2}, d::Array{Int,1}, sigmas::Float64, nl::Int, method::String="")
-    hr_bands = d==1;
+    hr_bands = d.==1;
     hr_bands = findall(hr_bands)';
     L = size(Y,1)
     nc = size(Y,2)÷nl
@@ -413,76 +439,90 @@ end
 
 
 
-function Fstep(F::Array{Float64,2},
-        Z::Array{Float64,2},
-        Y::Array{Float64,2},
-        FBM::Array{ComplexF64,3},
-        nl::Int,nc::Int,
-        Mask::Array{Float64,2})
-     F0=F;#%   U; % initialization
-     BTXhat =  ConvCM(F0*Z,FBM,nl);
-     MBTXhat=Mask.*BTXhat;
-     L, r = size(F);
-     n = nl*nc
-     MBZT = zeros(r,n,L)
-     A = zeros(r,r,L)
-     ZBMTy = zeros(r,L)
-     for ii=1:L
-         #@show size(Mask)
-         #@show size(repeat(Mask[ii,:]',outer=(r,1)))
-         #@show size(FBM)
-         #@show size(Z)
-         #@show size(ConvCM(Z,repeat(FBM[:,:,ii],outer=(1,1,r)),nl))
-        MBZT[:,:,ii] = repeat(Mask[ii,:]',outer=(r,1)).*
-                        ConvCM(Z,repeat(FBM[:,:,ii],outer=(1,1,r)),nl);
-        A[:,:,ii]=MBZT[:,:,ii]*MBZT[:,:,ii]';
-        ZBMTy[:,ii]=MBZT[:,:,ii]*Y[ii,:];
-     end
-     ZBYT=ZBMTy';#   BTY*Z';
+# function costF(F,MBZT,Y)
+#     L=size(F,1);
+#     Ju=0;
+#     for i=1:L,
+#         fi=F[i,:]';
+#         yi=Y[i,:]';
+#         Ju=Ju+0.5*norm(MBZT[:,:,i]'*fi-yi,"fro")^2;
+#     end
+#
+#     return Ju
+# end
+#
+# function  egrad(F,A,ZBYT)
+#     p=size(A,3);
+#     Du=0*F;
+#     for ii=1:p
+#         Du[ii,:]=F[ii,:]'*A[:,:,ii]'-ZBYT[ii,:]';
+#     end
+#
+#     return Du
+# end
 
-     #You may need to install Manifolds package for this to work
-     manifold = Manopt.Stiefel(L,r)
-     cost(_, F) = costF(F, MBZT, Y)
-     grad(_, F) = egrad(F, A, ZBYT)
-
-     F1 = Manopt.trust_regions(manifold, cost, grad, missing, F0;
-            stopping_criterion = StopWhenGradientNormLess(1e-2))
-
-    return F1
-
-     #manifold = stiefelfactory(L,r,1);# %euclideanfactory(L,r);
-     #problem.M = manifold;
-     #problem.cost  = @(F) costF(F,MBZT,Y);
-     #problem.egrad = @(F) egrad(F,A,ZBYT);
-     #warning('off', 'manopt:getHessian:approx')
-     #options.tolgradnorm = 1e-2;
-     #options.verbosity=0;
-     #[F1, xcost, info, options] = trustregions(problem,F0,options);
+function init_matlab()
+    eval_string("cd('C:/Users/Konrad/Documents/EECS556/proj/eecs556-sharp/julia')")
+    mxcall(:matlabInit,0)
+    println("Successfully initialized MATLAB environment")
+end
+function Fstep_matlab(F::Array{Float64,2},
+    Z::Array{Float64,2},
+    Y::Array{Float64,2},
+    FBM::Array{ComplexF64,3},
+    nl::Int,nc::Int,
+    Mask::Array{Float64,2})
+    return mxcall(:Fstep,1,F,Z,Y,FBM,nl,nc,Mask)
 end
 
-
-
-function costF(F,MBZT,Y)
-    L=size(F,1);
-    Ju=0;
-    for i=1:L,
-        fi=F[i,:]';
-        yi=Y[i,:]';
-        Ju=Ju+0.5*norm(MBZT[:,:,i]'*fi-yi,"fro")^2;
-    end
-
-    return Ju
-end
-
-function  egrad(F,A,ZBYT)
-    p=size(A,3);
-    Du=0*F;
-    for ii=1:p
-        Du[ii,:]=F[ii,:]'*A[:,:,ii]'-ZBYT[ii,:]';
-    end
-
-    return Du
-end
+# function Fstep(F::Array{Float64,2},
+#         Z::Array{Float64,2},
+#         Y::Array{Float64,2},
+#         FBM::Array{ComplexF64,3},
+#         nl::Int,nc::Int,
+#         Mask::Array{Float64,2})
+#      F0=F;#%   U; % initialization
+#      BTXhat =  ConvCM(F0*Z,FBM,nl);
+#      MBTXhat=Mask.*BTXhat;
+#      L, r = size(F);
+#      n = nl*nc
+#      MBZT = zeros(r,n,L)
+#      A = zeros(r,r,L)
+#      ZBMTy = zeros(r,L)
+#      for ii=1:L
+#          #@show size(Mask)
+#          #@show size(repeat(Mask[ii,:]',outer=(r,1)))
+#          #@show size(FBM)
+#          #@show size(Z)
+#          #@show size(ConvCM(Z,repeat(FBM[:,:,ii],outer=(1,1,r)),nl))
+#         MBZT[:,:,ii] = repeat(Mask[ii,:]',outer=(r,1)).*
+#                         ConvCM(Z,repeat(FBM[:,:,ii],outer=(1,1,r)),nl);
+#         A[:,:,ii]=MBZT[:,:,ii]*MBZT[:,:,ii]';
+#         ZBMTy[:,ii]=MBZT[:,:,ii]*Y[ii,:];
+#      end
+#      ZBYT=ZBMTy';#   BTY*Z';
+#
+#      #You may need to install Manifolds package for this to work
+#      manifold = Manopt.Stiefel(L,r)
+#      cost(_, F) = costF(F, MBZT, Y)
+#      grad(_, F) = egrad(F, A, ZBYT)
+#      hessam = Manopt.ApproxHessianFiniteDifference(manifold, F0, grad)
+#
+#
+#      F1 = Manopt.trust_regions(manifold, cost, grad, hessam, F0;
+#             stopping_criterion = StopWhenGradientNormLess(1e-2))
+#
+#     return F1
+#
+#      #manifold = stiefelfactory(L,r,1);# %euclideanfactory(L,r);
+#      #problem.M = manifold;
+#      #problem.cost  = @(F) costF(F,MBZT,Y);
+#      #problem.egrad = @(F) egrad(F,A,ZBYT);
+#      #warning('off', 'manopt:getHessian:approx')
+#      #options.tolgradnorm = 1e-2;
+#      #options.verbosity=0;
+#      #[F1, xcost, info, options] = trustregions(problem,F0,options);
+# end
 
 function ERGAS(I1::Array{Float64,3},
     I2::Array{Float64,3},
@@ -667,28 +707,7 @@ function createConvKernelSubspace(sdf,nl,nc,L,dx,dy)
 end
 
 
-function conv2mat(X,nl::Int,nc::Int,L::Int)
-    # function X = conv2mat(X,nl,nc,L)
-    #     if ndims(X) == 3
-    #         [nl,nc,L] = size(X);
-    #         X = reshape(X,nl*nc,L)';
-    #     elseif ndims(squeeze(X)) == 2
-    #         L = 1;
-    #         [nl,nc] = size(X);
-    #         X = reshape(X,nl*nc,L)';
-    #     end
-    # end
 
-    if ndims(X) == 3
-        nl,nc,L = size(X)
-        X = reshape(X,nl*nc,L)'
-        else #ndims(squeeze(X)) == 2 #unsure if squeeze() is in image transformations
-        L = 1
-        nl,nc = size(X)
-        X = reshape(X,nl*nc,L)'
-    end
-    return X
-end
 
 function unnormaliseData(Xim::Array{Float64,3},av::Array{Float64,1})
 
@@ -758,13 +777,17 @@ function conv2im(X,nl,nc=0,L=0)
     #     end
     #     X = reshape(X',nl,nc,L);
 
-    a,b=size(X)
-    if b==1
-        X = conv2mat(X,nl,nc,L)
+    if ndims(X) == 1
+        X = transpose(X)
+        #X = conv2mat(X,nl,nc,L)
     end
 
     if L==0 && nc==0 #this is the easiest sub for L,nc not being included
-        nc = b/nl
+        L, n = size(X)
+        if n == 1
+            X = conv2mat(X,nl,nc,L)
+        end
+        nc = n÷nl
     end
 
     return reshape(X',(nl,nc,L))

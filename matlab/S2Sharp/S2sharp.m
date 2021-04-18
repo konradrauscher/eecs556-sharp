@@ -275,8 +275,13 @@ function [SAMm, SAMm_2m, SRE, RMSE, NRMSE, SSIM_index, aSSIM, ERGAS_20m, ERGAS_6
         aSSIM=mean(SSIM_index);
         ERGAS_20m = ERGAS(Xm_im,Xhat_im(:,:,ind),2);
         ERGAS_60m = nan;
-        RMSE = norm(X - Xhat(ind,:),'fro') / size(X,2);
-        NRMSE = norm(X - Xhat(ind,:),'fro')/ norm(X,'fro');%??
+        %RMSE = norm(X - Xhat(ind,:),'fro') / size(X,2);
+        %NRMSE = norm(X - Xhat(ind,:),'fro')/ norm(X,'fro');%??
+        RMSE = 0;
+        for ii = ind
+            RMSE = RMSE + norm(X - Xhat(ind,:),'fro') / size(X,2);
+        end
+        NRMSE = size(X,2) * RMSE / norm(X(ind,:),'fro');
     else    
         ind=find(d==2 | d==6);
         SAMm=SAM(Xm_im(:,:,ind),Xhat_im(:,:,ind));
@@ -297,7 +302,7 @@ function [SAMm, SAMm_2m, SRE, RMSE, NRMSE, SSIM_index, aSSIM, ERGAS_20m, ERGAS_6
         for ii = ind
             RMSE = RMSE + norm(X(ii,:) - Xhat(ii,:),'fro') / size(X,2);
         end
-        NRMSE = RMSE / norm(X(ind,:),'fro');
+        NRMSE = size(X,2) * RMSE / norm(X(ind,:),'fro');
     end
 end
 

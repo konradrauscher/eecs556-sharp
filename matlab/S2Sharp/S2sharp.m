@@ -180,7 +180,7 @@ function [Xhat_im , output ] = S2sharp(Yim,varargin)
        if(~isempty(Xm_im))
            Xhat_im = conv2im(F*Z,nl,nc,L);
            [output.SAMm(jCD), output.SAMm_2m(jCD), output.SRE{jCD}, output.RMSE(jCD), ...
-               output.SSIM{jCD}, output.aSSIM(jCD),...
+               output.NRMSE(jCD), output.SSIM{jCD}, output.aSSIM(jCD),...
                output.ERGAS_20m(jCD), output.ERGAS_60m(jCD)] ...
                = evaluate_performance(Xm_im,Xhat_im,nl,nc,L,limsub,d,av);
        end
@@ -255,7 +255,7 @@ function [Du]=egrad(F,A,ZBYT)
     end
 end
 
-function [SAMm, SAMm_2m, SRE, RMSE, SSIM_index, aSSIM, ERGAS_20m, ERGAS_60m] = evaluate_performance(Xm_im,Xhat_im,nl,nc,L,limsub,d,av)
+function [SAMm, SAMm_2m, SRE, RMSE, NRMSE, SSIM_index, aSSIM, ERGAS_20m, ERGAS_60m] = evaluate_performance(Xm_im,Xhat_im,nl,nc,L,limsub,d,av)
     Xhat_im = Xhat_im(limsub+1:end-limsub,limsub+1:end-limsub,:);
     Xhat_im = unnormaliseData(Xhat_im,av);
     Xhat=reshape(Xhat_im,[(nl-4)*(nc-4),L]);
@@ -276,6 +276,7 @@ function [SAMm, SAMm_2m, SRE, RMSE, SSIM_index, aSSIM, ERGAS_20m, ERGAS_60m] = e
         ERGAS_20m = ERGAS(Xm_im,Xhat_im(:,:,ind),2);
         ERGAS_60m = nan;
         RMSE = norm(X - Xhat(ind,:),'fro') / size(X,2);
+        NRMSE = norm(X - Xhat(ind,:),'fro')/ norm(X,'fro');%??
     else    
         ind=find(d==2 | d==6);
         SAMm=SAM(Xm_im(:,:,ind),Xhat_im(:,:,ind));
@@ -292,7 +293,11 @@ function [SAMm, SAMm_2m, SRE, RMSE, SSIM_index, aSSIM, ERGAS_20m, ERGAS_60m] = e
         aSSIM=mean(SSIM_index(ind));
         ERGAS_20m = ERGAS(Xm_im(:,:,ind),Xhat_im(:,:,ind),2);
         ERGAS_60m = ERGAS(Xm_im(:,:,ind2),Xhat_im(:,:,ind2),6);
-        RMSE = norm(X(ind,:) - Xhat(ind,:),'fro') / size(X,2);
+        RMSE = 0;
+        for ii = ind
+            RMSE = RMSE + norm(X(ii,:) - Xhat(ii,:),'fro') / size(X,2);
+        end
+        NRMSE = RMSE / norm(X(ind,:),'fro');
     end
 end
 

@@ -19,3 +19,21 @@ lam = 1.8998e-04;
 
 Xhat_im, output_S2 =S2sharp(Yim,["Xm_im",Xm_im,"r",r,"lambda",lam,"q",q,
             "CDiter",ni]);
+##
+S2sharp_SRE = output_S2["SRE"][end][[1,5,6,7,9,10,11,12]];
+S2sharp_aSRE= mean(S2sharp_SRE);
+S2sharp_SAM = output_S2["SAMm"][end];
+S2sharp_RMSE = output_S2["RMSE"][end];
+S2sharp_aSSIM = output_S2["aSSIM"][end];
+#S2sharp_ERGAS_60m=output_S2.ERGAS_60m[end];
+#S2sharp_ERGAS_20m=output_S2.ERGAS_20m[end];
+S2sharp_time = output_S2["Time"][end];
+
+@show S2sharp_SRE
+@show S2sharp_SAM
+@show S2sharp_aSRE
+@show S2sharp_aSSIM
+@show S2sharp_RMSE
+@show S2sharp_time
+println("B1    B5    B6    B7    B8a   B9    B11   B12")
+@printf "%0.2f %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f %0.2f\n\n" S2sharp_SRE...

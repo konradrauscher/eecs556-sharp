@@ -82,6 +82,8 @@ function S2sharp(Yim,varargin)
 
     init_matlab()
 
+    tic = time()
+
     #quick sanity checks here
     if length(q) != r
         println("The length of q has to match r")
@@ -186,7 +188,8 @@ function S2sharp(Yim,varargin)
 
             output["GCVscore"] = [num / den]
         end
-        #output["Time"] = [toc] unclear where they get this from in the Matlab
+
+        output["Time"][jCD] = time() - tic
 
         if Xm_im != [] #idk if this is good syntax for isempty, but its the best i have
             Xhat_im = collect(conv2im(F*Z,nl,nc,L))
@@ -558,7 +561,7 @@ function  evaluate_performance(
     Xm_im = Xm_im[limsub+1:end-limsub,limsub+1:end-limsub,:];
     if ( size(Xm_im,3) == 6 ) #% Reduced Resolution
         ind = findall( d==2 );
-        SAMm=0#SAM(Xm_im,Xhat_im[:,:,ind]);
+        SAMm=SAM(Xm_im,Xhat_im[:,:,ind]);
         SAMm_2m=SAMm;
         X = conv2mat(Xm_im);
         Xhat = conv2mat(Xhat_im);
@@ -577,9 +580,9 @@ function  evaluate_performance(
         ind = findall((d .==2) .| (d .== 6))
         #@show ind
         #ind = [ii[2] for ii in ind]#?????
-        SAMm=0#SAM(Xm_im[:,:,ind],Xhat_im[:,:,ind]);
+        SAMm=SAM(Xm_im[:,:,ind],Xhat_im[:,:,ind]);
         ind2=findall(d .== 2);
-        SAMm_2m=0#SAM(Xm_im[:,:,ind2],Xhat_im[:,:,ind2]);
+        SAMm_2m=SAM(Xm_im[:,:,ind2],Xhat_im[:,:,ind2]);
         ind6=findall(d .== 6);
         X = conv2mat(Xm_im);
         Xhat = conv2mat(Xhat_im);
@@ -798,6 +801,29 @@ function conv2im(X,nl,nc=0,L=0)
 
     return reshape(X',(nl,nc,L))
 end
+
+function SAM(I1,I2)
+
+    M, N, _ = size(I2);
+    dot3(A,B) = sum(conj(A).*B,dims=3)
+    prod_scal = dot3(I1,I2);
+    norm_orig = dot3(I1,I1);
+    norm_fusa = dot3(I2,I2);
+    prod_norm = sqrt.(norm_orig.*norm_fusa);
+    prod_map = prod_norm;
+    prod_map[prod_map .== 0] .= eps();
+    SAM_map = acos.(prod_scal./prod_map);
+    prod_scal = reshape(prod_scal, M*N,1);
+    prod_norm = reshape(prod_norm, M*N,1);
+    nz = prod_norm .!= 0;
+    prod_scal = prod_scal[nz]
+    prod_norm = prod_norm[nz]
+    angolo = sum(sum(acos.(prod_scal./prod_norm)))/(size(prod_norm,1));
+    SAM_index = real.(angolo)*180/pi;
+
+    return SAM_index#, SAM_map
+end
+
 
 fft2(X) = fft(X,(1,2))
 ifft2(X) = ifft(X,(1,2))

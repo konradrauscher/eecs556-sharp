@@ -628,6 +628,28 @@ function createDiffkernels(nl,nc,r)
 end
 
 
+#julia version does not support even kernel lengths, which the MATLAB version
+#used. this function was adapted from fspecial in MATLAB Image Toolbox.
+function _matlab_imagetoolbox_gaussian(size::NTuple{2,Int},σ::AbstractFloat)
+    siz   = (size.-1)./2;
+    std   = σ;
+
+    x = -siz[2] : siz[2]
+    y = transpose(-siz[1] : siz[1])
+
+    arg   = -(x.*x .+ y.*y)./(2*std*std);
+
+    h     = exp.(arg);
+    h[h.<eps()*maximum(h[:])] .= 0;
+
+    sumh = sum(h[:]);
+    if sumh != 0
+        h  = h/sumh;
+    end
+
+    return h
+end
+
 function normaliseData(Yim::Array{Any,1})
     #Yim is the array that has all the different images in it
 
@@ -656,17 +678,10 @@ function createConvKernel(sdf,d,nl,nc,L,dx,dy)
 
     for i in 1:L
         if d[i] >1
-            #h = Kernel.gaussian(3) #this will produce a 13x13 kernel which is close the example 12x12 needed
+            h = _matlab_imagetoolbox_gaussian((dx,dy),sdf[i])
 
-            h = Kernel.gaussian((sdf[i],sdf[i]),(dx+1,dy+1))
-            #h = imresize(h,dx,dy)# HACK
-
-            #this function won't work.. not adaptable enough
-            #need to create a 12x12 filter here...
-
-            #B[(middlel-dy÷2+1:middlel+dy÷2) .- (d[i]÷2) .+ 1 , (middlec-dx÷2+1:middlec+dx÷2) .- (d[i]÷2) .+ 1, i] = h #not sure about this line here
-            B[(middlel-dy÷2:middlel+dy÷2) .- (d[i]÷2) .+ 1 , (middlec-dx÷2:middlec+dx÷2) .- (d[i]÷2) .+ 1, i] = h
-
+            B[(middlel-dy÷2+1:middlel+dy÷2) .- (d[i]÷2) .+ 1 , (middlec-dx÷2+1:middlec+dx÷2) .- (d[i]÷2) .+ 1, i] = h #not sure about this line here
+            
             B[:,:,i]=fftshift( B[:,:,i] )/sum(sum(B[:,:,i]))
             FBM[:,:,i] = fft2(B[:,:,i])
         else
@@ -824,6 +839,6 @@ function SAM(I1,I2)
     return SAM_index#, SAM_map
 end
 
-
+#FFTs along first 2 dimensions - convenience functions to match matlab
 fft2(X) = fft(X,(1,2))
 ifft2(X) = ifft(X,(1,2))

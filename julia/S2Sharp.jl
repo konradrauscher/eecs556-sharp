@@ -12,7 +12,16 @@ using Printf
 using MATLAB # :(
 MATLAB.__init__()#absolutely unbelievable that I have to put this!!!
 
-function S2sharp(Yim,varargin)
+function S2sharp(Yim;
+    CDiter = 10,
+    r=7,
+    lambda=0.05,
+    Xm_im=nothing,
+    q=[1, 1.5, 4, 8, 15, 15, 20 ],
+    X0=nothing,
+    tolgradnorm=0.1,
+    Gstep_only=false,
+    GCV=false)
 #   Input:
 #           Yim : 1x12 cell array containing the observed images for each of
 #                 the nb bands of the Sentinel 2 sensor.
@@ -29,51 +38,6 @@ function S2sharp(Yim,varargin)
 #     Gstep_only: If Gstep_only=1 then perform the G-step (once). Assuming that F is fixed
 #            GCV: If GCV=1 then the GCV value is computed.
 
-    #declare the different inputs that aren't called in function
-    CDiter=10
-    r=7
-    lambda=0.005
-    Xm_im=""
-    X0 = ""
-    tolgradnorm = 0.1
-    Gstep_only=0
-    GCV = 0
-
-    if r==7
-        q = [1, 1.5, 4, 8, 15, 15, 20 ]'
-    else
-        println("NEED TO SUPPORT DIFFERENT r")
-        q = (zeros(r,1).+1)'
-    end
-
-    for i in 1:2:(length(varargin))
-        current = varargin[i]
-        next = varargin[i+1]
-
-        if current == "CDiter"
-            CDiter = next
-        elseif current == "r"
-            r = next
-        elseif current == "lambda"
-            lambda = next
-        elseif current == "Xm_im"
-            Xm_im = next
-        elseif current == "q"
-            q = next
-        elseif current == "X0"
-            q = next
-        elseif current == "tolgradnorm"
-            tolgradnorm = next
-        elseif current == "Gstep_only"
-            Gstep_only = next
-        elseif current == "GCV"
-            GCV = next
-        else
-            println("Bad varargin: $current")
-
-        end
-    end
-
     vn() = Vector{Any}(nothing, CDiter)
 
     output = Dict("SAMm" => vn(), "SAMm_2m" => vn(), "SRE" => vn(), "GVCscore" => vn(),
@@ -89,15 +53,7 @@ function S2sharp(Yim,varargin)
         println("The length of q has to match r")
     end
 
-    #unsure if this will be needed
     q = q[:]
-
-    ##NEED A DIFFERENT LENGTH FUNCTION THAN MATLAB HERE
-    ##TODO check if this works
-    #Yim = vec(Yim)
-    #may need to convert data type here
-
-    ##can't visualize what this does
 
     nl,nc = size(Yim[2]);
     L = length(Yim)
@@ -114,12 +70,7 @@ function S2sharp(Yim,varargin)
 
     sdf = d.*sqrt.(-2*log.(mtf)/(π^2))
 
-    #julia sucks bc i use python too much
-    for i in 1:length(sdf)
-        if d[i] ==1
-            sdf[i]=0
-        end
-    end
+    sdf[di .== 1] = 0
 
     limsub=2
     dx=12
@@ -127,9 +78,9 @@ function S2sharp(Yim,varargin)
     FBM = createConvKernel(sdf,d,nl,nc,L,dx,dy)
     Y,M,F = initialization(Yim2,sdf,nl,nc,L,dx,dy,d,limsub,r)
 
-    Mask = vcat(reshape(M,(n,L))')
+    Mask = collect(reshape(M,(n,L))')
 
-    if X0 == ""
+    if isnothing(X0)
         Z = zeros(r,n)
     else
         #low rank approx
@@ -153,17 +104,12 @@ function S2sharp(Yim,varargin)
         CDiter=1
     end
 
-    # Konrad 4/14: stopped here
 
     Jcost = zeros(CDiter)
     for jCD in 1:CDiter
         @show jCD
-        # mask is failing
-        Z, Jcost[jCD], options = Zstep(Y,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
 
-#         println(Z)
-#         println(size(Z))
-#         println(typeof(Z))
+        Z, Jcost[jCD], options = Zstep(Y,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
 
         if(Gstep_only==0)
            F1=Fstep_matlab(F,Z,Y,FBM,nl,nc,Mask)
@@ -191,7 +137,7 @@ function S2sharp(Yim,varargin)
 
         output["Time"][jCD] = time() - tic
 
-        if Xm_im != [] #idk if this is good syntax for isempty, but its the best i have
+        if isnothing(Xm_im)
             Xhat_im = collect(conv2im(F*Z,nl,nc,L))
             output["SAMm"][jCD], output["SAMm_2m"][jCD], output["SRE"][jCD],
                  output["RMSE"][jCD], output["SSIM"][jCD], output["aSSIM"][jCD],
@@ -225,6 +171,7 @@ function S2sharp(Yim,varargin)
 
     return Xhat_im, output
 end
+
 function initialization(Yim2::Array{Any,1}, sdf::Array{Float64,1},
     nl::Int,nc::Int,L::Int,
     dx::Int, dy::Int, d::Array{Int,1}, limsub::Int,r::Int)
@@ -248,18 +195,18 @@ function initialization(Yim2::Array{Any,1}, sdf::Array{Float64,1},
 end
 
 function createSubsampling(Yim::Array{Any,1}, d::Array{Int,1}, nl::Int, nc::Int, L::Int)
-M = zeros(nl, nc, L)
-indexes = Array{Any,1}(undef,L)
-Y = zeros(L,nl*nc)
-for i = 1:L
-    im = ones(nl÷d[i],nc÷d[i])
-    maux = zeros(d[i],d[i])
-    maux[1,1] = 1
-    M[:,:,i] = kron(im,maux)
-    indexes[i] = findall(!iszero,vec(M[:,:,i]))
-    Y[i,indexes[i]] = conv2mat(Yim[i],nl÷d[i],nc÷d[i],1)
-end
-return M, Y
+    M = zeros(nl, nc, L)
+    indexes = Array{Any,1}(undef,L)
+    Y = zeros(L,nl*nc)
+    for i = 1:L
+        im = ones(nl÷d[i],nc÷d[i])
+        maux = zeros(d[i],d[i])
+        maux[1,1] = 1
+        M[:,:,i] = kron(im,maux)
+        indexes[i] = findall(!iszero,vec(M[:,:,i]))
+        Y[i,indexes[i]] = conv2mat(Yim[i],nl÷d[i],nc÷d[i],1)
+    end
+    return M, Y
 end
 
 
@@ -284,28 +231,6 @@ function conv2mat(X,nl::Int=0,nc::Int=0,L::Int=0)
     end
     return X
 end
-# function conv2mat(X,nl::Int,nc::Int,L::Int)
-#     # function X = conv2mat(X,nl,nc,L)
-#     #     if ndims(X) == 3
-#     #         [nl,nc,L] = size(X);
-#     #         X = reshape(X,nl*nc,L)';
-#     #     elseif ndims(squeeze(X)) == 2
-#     #         L = 1;
-#     #         [nl,nc] = size(X);
-#     #         X = reshape(X,nl*nc,L)';
-#     #     end
-#     # end
-#
-#     if ndims(X) == 3
-#         nl,nc,L = size(X)
-#         X = reshape(X,nl*nc,L)'
-#         else #ndims(squeeze(X)) == 2 #unsure if squeeze() is in image transformations
-#         L = 1
-#         nl,nc = size(X)
-#         X = reshape(X,nl*nc,L)'
-#     end
-#     return X
-# end
 
 function grad_cost_G(Z::Array{Float64,2},
     F::Array{Float64,2},
@@ -442,29 +367,6 @@ function Zstep(
 end
 
 
-
-# function costF(F,MBZT,Y)
-#     L=size(F,1);
-#     Ju=0;
-#     for i=1:L,
-#         fi=F[i,:]';
-#         yi=Y[i,:]';
-#         Ju=Ju+0.5*norm(MBZT[:,:,i]'*fi-yi,"fro")^2;
-#     end
-#
-#     return Ju
-# end
-#
-# function  egrad(F,A,ZBYT)
-#     p=size(A,3);
-#     Du=0*F;
-#     for ii=1:p
-#         Du[ii,:]=F[ii,:]'*A[:,:,ii]'-ZBYT[ii,:]';
-#     end
-#
-#     return Du
-# end
-
 function init_matlab()
     eval_string("cd('C:/Users/Konrad/Documents/EECS556/proj/eecs556-sharp/julia')")
     mxcall(:matlabInit,0)
@@ -531,9 +433,6 @@ end
 function ERGAS(I1::Array{Float64,3},
     I2::Array{Float64,3},
     ratio::Int)
-
-    #I1 = double(I1);
-    #I2 = double(I2);
 
     Err=I1-I2;
     ERGAS_index=0.0;
@@ -628,8 +527,9 @@ function createDiffkernels(nl,nc,r)
 end
 
 
-#julia version does not support even kernel lengths, which the MATLAB version
-#used. this function was adapted from fspecial in MATLAB Image Toolbox.
+# julia ImageFiltering.kernel.Gaussian does not support even kernel lengths,
+# which the MATLAB version of S2Sharp used. this function was adapted from
+# fspecial in MATLAB Image Toolbox.
 function _matlab_imagetoolbox_gaussian(size::NTuple{2,Int},σ::AbstractFloat)
     siz   = (size.-1)./2;
     std   = σ;
@@ -657,7 +557,6 @@ function normaliseData(Yim::Array{Any,1})
     av = zeros(nb)
     Yim = deepcopy(Yim)
 
-    #TODO see what this other case even means
     for i in 1:nb
         av[i] = mean(mean(Yim[i].^2))
         Yim[i] = sqrt.(Yim[i].^2/av[i])
@@ -668,8 +567,6 @@ end
 
 function createConvKernel(sdf,d,nl,nc,L,dx,dy)
 
-
-    ##might not need this round here. i added this before seeing how round is done below
     middlel = nl÷2
     middlec = nc÷2
 
@@ -681,7 +578,7 @@ function createConvKernel(sdf,d,nl,nc,L,dx,dy)
             h = _matlab_imagetoolbox_gaussian((dx,dy),sdf[i])
 
             B[(middlel-dy÷2+1:middlel+dy÷2) .- (d[i]÷2) .+ 1 , (middlec-dx÷2+1:middlec+dx÷2) .- (d[i]÷2) .+ 1, i] = h #not sure about this line here
-            
+
             B[:,:,i]=fftshift( B[:,:,i] )/sum(sum(B[:,:,i]))
             FBM[:,:,i] = fft2(B[:,:,i])
         else
@@ -743,20 +640,6 @@ function unnormaliseData(Xim::Array{Float64,3},av::Array{Float64,1})
     return Xim2
 end
 function unnormaliseData(Yim::Array{Any, 1},av::Array{Float64,1})
-    # function [Yim] = unnormaliseData(Yim, av)
-    #     if iscell(Yim)
-    #         % mean squared power = 1
-    #         nb = length(Yim);
-    #         for i=1:nb
-    #             Yim{i,1} = sqrt(Yim{i}.^2*av(i,1));
-    #         end
-    #     else
-    #         nb = size(Yim,3);
-    #         for i=1:nb
-    #             Yim(:,:,i) = sqrt(Yim(:,:,i).^2*av(i,1));
-    #         end
-    #     end
-    # end
 
     nb, =size(Yim)
 
@@ -769,37 +652,8 @@ function unnormaliseData(Yim::Array{Any, 1},av::Array{Float64,1})
 end
 
 
-function regularization(X1,X2,tau,mu,W,q)
-    # function [Y1,Y2] = regularization(X1,X2,tau,mu,W,q)
-    #     Wr = q*W;
-    #     %Wr=ones(size(Wr));
-    #     Y1 = (mu*X1)./(mu + tau*Wr);
-    #     Y2 = (mu*X2)./(mu + tau*Wr);
-    # end
-
-    ##NOT USED IN THE EXAMPLE CODE
-    ##WAS NOT ABLE TO CHECK THIS
-    Wr = q*W;
-
-    Y1 = (mu*X1)./(mu + tau*Wr);
-    Y2 = (mu*X2)./(mu + tau*Wr);
-
-    return Y1, Y2
-end
 
 function conv2im(X,nl,nc=0,L=0)
-
-    #     if size(X,2)==1
-    #         X = conv2mat(X,nl,nc,L);
-    #     end
-    #     if nargin == 2
-    #         [L,n] = size(X);
-    #         if n==1
-    #             X = conv2mat(X,nl,nc,L);
-    #         end
-    #         nc = n/nl;
-    #     end
-    #     X = reshape(X',nl,nc,L);
 
     if ndims(X) == 1
         X = transpose(X)

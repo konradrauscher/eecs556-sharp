@@ -17,8 +17,7 @@ ni = 5;#  % number of iterations / one can select fewer iterations (e.g. ni=2) w
 lam = 1.8998e-04;
 
 
-Xhat_im, output_S2 =S2sharp(Yim,["Xm_im",Xm_im,"r",r,"lambda",lam,"q",q,
-            "CDiter",ni]);
+Xhat_im, output_S2 =S2sharp(Yim;Xm_im=Xm_im,r=r,lambda=lam,q=q,CDiter=ni);
 ##
 S2sharp_SRE = output_S2["SRE"][end][[1,5,6,7,9,10,11,12]];
 S2sharp_aSRE= mean(S2sharp_SRE);

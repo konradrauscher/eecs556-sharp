@@ -44,7 +44,6 @@ function S2sharp(Yim;
         "ERGAS_20m" => vn(), "ERGAS_60m" => vn(), "SSIM" => vn(), "aSSIM" => vn(),
         "RMSE" => vn(), "Time" => vn() )
 
-    init_matlab()
 
     tic = time()
 
@@ -70,7 +69,7 @@ function S2sharp(Yim;
 
     sdf = d.*sqrt.(-2*log.(mtf)/(π^2))
 
-    sdf[di .== 1] = 0
+    sdf[d .== 1] .= 0
 
     limsub=2
     dx=12
@@ -86,7 +85,8 @@ function S2sharp(Yim;
         #low rank approx
         X0, = normaliseData(X0)
         X0 = reshape(X0, (n,L))'
-        U,Σ,V = svd(X0, full=false)
+        U,s,V = svd(X0, full=false)
+        Σ = Diagonal(s)
         U = U[:,1:r]
         Z = Σ[1:r,1:r]*V[:,1:r]'
     end
@@ -104,6 +104,7 @@ function S2sharp(Yim;
         CDiter=1
     end
 
+    init_matlab(Y,FBM,nl,nc,Mask)
 
     Jcost = zeros(CDiter)
     for jCD in 1:CDiter
@@ -137,7 +138,7 @@ function S2sharp(Yim;
 
         output["Time"][jCD] = time() - tic
 
-        if isnothing(Xm_im)
+        if !isnothing(Xm_im)
             Xhat_im = collect(conv2im(F*Z,nl,nc,L))
             output["SAMm"][jCD], output["SAMm_2m"][jCD], output["SRE"][jCD],
                  output["RMSE"][jCD], output["SSIM"][jCD], output["aSSIM"][jCD],
@@ -367,9 +368,14 @@ function Zstep(
 end
 
 
-function init_matlab()
-    eval_string("cd('C:/Users/Konrad/Documents/EECS556/proj/eecs556-sharp/julia')")
+function init_matlab(Y,FBM,nl,nc,Mask)
+    mat"cd('C:/Users/Konrad/Documents/EECS556/proj/eecs556-sharp/julia')"
     mxcall(:matlabInit,0)
+    mat"Y = $Y;"
+    mat"FBM = $FBM;"
+    mat"Mask= $Mask;"
+    mat"nl= $nl;"
+    mat"nc= $nc;"
     println("Successfully initialized MATLAB environment")
 end
 function Fstep_matlab(F::Array{Float64,2},
@@ -378,7 +384,9 @@ function Fstep_matlab(F::Array{Float64,2},
     FBM::Array{ComplexF64,3},
     nl::Int,nc::Int,
     Mask::Array{Float64,2})
-    return mxcall(:Fstep,1,F,Z,Y,FBM,nl,nc,Mask)
+    mat"$F1 = Fstep($F,$Z,Y,FBM,nl,nc,Mask)"
+    return F1
+    #return mxcall(:Fstep,1,F,Z,Y,FBM,nl,nc,Mask)
 end
 
 # function Fstep(F::Array{Float64,2},

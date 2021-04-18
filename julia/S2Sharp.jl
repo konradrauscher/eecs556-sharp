@@ -6,9 +6,9 @@ using LinearAlgebra
 using ImageTransformations
 using ImageFiltering
 using Statistics
-using Manopt
-using Manifolds
+using OffsetArrays
 using Printf
+#using MIRT: diff_forw
 using MATLAB # :(
 MATLAB.__init__()#absolutely unbelievable that I have to put this!!!
 
@@ -74,7 +74,7 @@ function S2sharp(Yim;
     limsub=2
     dx=12
     dy=12
-    FBM = createConvKernel(sdf,d,nl,nc,L,dx,dy)
+    FBM, fbm = createConvKernel(sdf,d,nl,nc,L,dx,dy)
     Y,M,F = initialization(Yim2,sdf,nl,nc,L,dx,dy,d,limsub,r)
 
     Mask = collect(reshape(M,(n,L))')
@@ -110,7 +110,7 @@ function S2sharp(Yim;
     for jCD in 1:CDiter
         @show jCD
 
-        Z, Jcost[jCD], options = Zstep(Y,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
+        Z, Jcost[jCD], options = Zstep(Y,FBM,fbm,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
 
         if(Gstep_only==0)
            F1=Fstep_matlab(F,Z,Y,FBM,nl,nc,Mask)
@@ -120,7 +120,7 @@ function S2sharp(Yim;
         if( GCV==1 )
             Ynoise = ( abs(Y) > 0 ) .* randn( size(Y) )
 
-            Znoise = Zstep(Ynoise,FBM,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
+            Znoise = Zstep(Ynoise,FBM,fbm,F,lambda,nl,nc,Z,Mask,q,FDH,FDV,FDHC,FDVC,W,Whalf,tolgradnorm)
 
             HtHBXnoise = Mask.*ConvCM(F*Znoise,FBM,nl)
 
@@ -221,6 +221,45 @@ function ConvCM(X::Array{Float64,2}, FKM::Array{ComplexF64,3}, nl::Int, nc::Int 
 end
 
 
+function conv_sp(X::Array{Float64,2}, fkm::Vector{Any}, nl::Int, flip::Bool=true)
+
+    Xim = conv2im(X,nl)
+    L = size(Xim,3)
+    Xfilt = Array{Float64,3}(undef, size(Xim))
+    for ii = 1:L
+        Xi = view(Xim,:,:,ii)
+        Xfilti = view(Xfilt,:,:,ii)
+        ker = length(fkm) == 1 ? fkm[1] : fkm[ii]
+        if flip
+            ker = reflect(ker)
+        end
+        imfilter!(Xfilti,Xi,ker,"circular")
+    end
+
+    return conv2mat(Xfilt)
+end
+function diffmat(X::Array{Float64,2}, dim::Int, nl::Int; flip::Bool = false)
+        Xim = conv2im(X,nl)
+
+        nl, nc, L = size(Xim)
+
+
+        if flip
+            Xim = reverse(Xim,dims=dim)
+        end
+        #pad for circular
+        if dim == 1
+            Xim = vcat(Xim,reshape(Xim[1,:,:],(1,nc,L)))
+        else
+            Xim = hcat(Xim,reshape(Xim[:,1,:],(nl,1,L)))
+        end
+        Xfilt = diff(Xim,dims=dim)
+        if flip
+            Xfilt = reverse(Xfilt,dims=dim)
+        end
+        return conv2mat(Xfilt)
+end
+
 function conv2mat(X,nl::Int=0,nc::Int=0,L::Int=0)
     if ndims(X) == 3
         nl,nc,L = size(X);
@@ -238,6 +277,7 @@ function grad_cost_G(Z::Array{Float64,2},
     Y::Array{Float64,2},
     UBTMTy::Array{Float64,2},
     FBM::Array{ComplexF64,3},
+    fbm::Vector{Any},
     Mask::Array{Float64,2},
     nl::Int, nc::Int, r::Int,
     tau::Float64, q::Array{Float64,1},
@@ -248,14 +288,18 @@ function grad_cost_G(Z::Array{Float64,2},
     W::Array{Float64,2})
 
     X = F*Z
-    BX=ConvCM(X,FBM,nl);
+    BX = conv_sp(X,fbm,nl);
     HtHBX=Mask.*BX;
-    ZH=ConvCM(Z,FDHC,nl);
-    Zv=ConvCM(Z,FDVC,nl);
+    #ZH=ConvCM(Z,FDHC,nl);
+    #Zv=ConvCM(Z,FDVC,nl);
+    ZH = diffmat(Z,2,nl)
+    Zv = diffmat(Z,1,nl)
     ZHW=ZH.*W;
     ZVW=Zv.*W;
-    grad_pen=ConvCM(ZHW,FDH,nl)+ConvCM(ZVW,FDV,nl);
-    AtAg = F'*ConvCM(HtHBX,conj.(FBM),nl)+2*tau*(q*ones(1,nl*nc)).*grad_pen;
+    #grad_pen=ConvCM(ZHW,FDH,nl)+ConvCM(ZVW,FDV,nl);
+    grad_pen = diffmat(ZHW,2,nl,flip=true) + diffmat(ZVW,1,nl,flip=true)
+    AtAg = F'*conv_sp(HtHBX,fbm,nl,false)+2*tau*(q*ones(1,nl*nc)).*grad_pen;
+    #AtAg = F'*ConvCM(HtHBX,conj.(FBM),nl)+2*tau*(q*ones(1,nl*nc)).*grad_pen;
     gradJ=AtAg-UBTMTy;
     J = 1/2 * sum( Z .* AtAg ) - sum( Z.*UBTMTy );
 
@@ -267,6 +311,7 @@ function CG(Z::Array{Float64,2},
     Y::Array{Float64,2},
     UBTMTy::Array{Float64,2},
     FBM::Array{ComplexF64,3},
+    fbm::Vector{Any},
     Mask::Array{Float64,2},
     nl::Int, nc::Int, r::Int,
     tau::Float64, q::Array{Float64,1},
@@ -278,7 +323,7 @@ function CG(Z::Array{Float64,2},
 
     maxiter = 1000;
     tolgradnorm = 0.1;  #%1e-6;   %0.1
-    cost,grad = grad_cost_G(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
+    cost,grad = grad_cost_G(Z,F,Y,UBTMTy,FBM,fbm,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
     gradnorm = norm(grad[:]);
     iter = 0;
     res = -grad;
@@ -293,7 +338,7 @@ function CG(Z::Array{Float64,2},
             beta = ( res[:]' * res[:] ) / ( old_res[:]' * old_res[:] );
             desc_dir = res + beta * desc_dir;
         end
-        cost, _, AtAp = grad_cost_G(desc_dir,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
+        cost, _, AtAp = grad_cost_G(desc_dir,F,Y,UBTMTy,FBM,fbm,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
         alpha = ( res[:]' * res[:] ) / ( desc_dir[:]' * AtAp[:] );
         Z1 = Z + alpha * desc_dir;
         old_res = res;
@@ -339,9 +384,84 @@ function computeWeights(Y::Array{Float64,2}, d::Array{Int,1}, sigmas::Float64, n
 end
 
 
+function createConvKernel(sdf,d,nl,nc,L,dx,dy)
+
+    middlel = nl÷2
+    middlec = nc÷2
+
+    B = zeros(nl,nc,L)
+    FBM = zeros(ComplexF64,nl,nc,L)
+    fbm = []
+
+    for i in 1:L
+        if d[i] >1
+            h = _matlab_imagetoolbox_gaussian((dx,dy),sdf[i])
+
+            h /= sum(h)
+            #todo - this may be flipped and/or off by one
+            push!(fbm,OffsetArray(h,
+                    (-dy÷2+1:dy÷2) .- (d[i]÷2) .+ 0,
+                    (-dx÷2+1:dx÷2) .- (d[i]÷2) .+ 0))
+
+
+            B[(middlel-dy÷2+1:middlel+dy÷2) .- (d[i]÷2) .+ 1 , (middlec-dx÷2+1:middlec+dx÷2) .- (d[i]÷2) .+ 1, i] = h #not sure about this line here
+
+            B[:,:,i]=fftshift( B[:,:,i] )#/sum(sum(B[:,:,i]))
+            FBM[:,:,i] = fft2(B[:,:,i])
+        else
+            push!(fbm,centered(ones(1,1)))
+            B[1,1,i]=1
+            FBM[:,:,i]=fft2(B[:,:,i])
+        end
+    end
+
+
+    return FBM, fbm
+end
+
+
+
+function createConvKernelSubspace(sdf,nl,nc,L,dx,dy)
+    middlel=Int(round((nl+1)/2,RoundNearestTiesUp))
+    middlec=Int(round((nc+1)/2,RoundNearestTiesUp))
+
+    dx = dx+1
+    dy = dy+1
+
+    # kernel filters expanded to size [nl,nc]
+    B = zeros(nl,nc,L)
+    # fft2 of kernels
+    FBM2 = zeros(ComplexF64,nl,nc,L)
+    s2 = maximum(sdf)
+
+    ##this loop is nearly identical to whats happening above! this would be a good place to improve it
+    for i in 1:L
+        if sdf[i] < s2 # != would be a little better i think
+
+            σ = sqrt(s2^2 - sdf[i]^2)
+            h = Kernel.gaussian((σ,σ),(dx,dy))
+            #h = Kernel.gaussian(3) #this will produce a 13x13 kernel which is close the example 12x12 needed
+
+            B[middlel-(dy-1)÷2:middlel+(dy-1)÷2,middlec-(dx-1)÷2:middlec+(dx-1)÷2,i] = h;
+            B[:,:,i]=fftshift( B[:,:,i] )/sum(sum(B[:,:,i]))
+            FBM2[:,:,i] = fft2(B[:,:,i])
+        else
+            B[1,1,i]=1
+            FBM2[:,:,i]=fft2(B[:,:,i])
+        end
+
+    end
+
+    return FBM2
+
+end
+
+
+
 function Zstep(
     Y::Array{Float64,2},
     FBM::Array{ComplexF64,3},
+    fbm::Vector{Any},
     F::Array{Float64,2},
     tau::Float64, nl::Int, nc::Int,
     Z::Array{Float64,2},
@@ -359,7 +479,7 @@ function Zstep(
     r = size(F,2);
     n = nl*nc;
     UBTMTy=F'*ConvCM(Y,conj.(FBM),nl);
-    Z = CG(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
+    Z = CG(Z,F,Y,UBTMTy,FBM,fbm,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W);
     xcost=1;
     options=[];
 
@@ -531,7 +651,8 @@ function createDiffkernels(nl,nc,r)
 
     FDHC = conj(FDH)
     FDVC = conj(FDV)
-    return FDH,FDV,FDHC,FDVC
+
+    return FDH,FDV,FDHC,FDVC, dh, dv
 end
 
 
@@ -572,70 +693,6 @@ function normaliseData(Yim::Array{Any,1})
 
     return Yim, av
 end
-
-function createConvKernel(sdf,d,nl,nc,L,dx,dy)
-
-    middlel = nl÷2
-    middlec = nc÷2
-
-    B = zeros(nl,nc,L)
-    FBM = zeros(ComplexF64,nl,nc,L)
-
-    for i in 1:L
-        if d[i] >1
-            h = _matlab_imagetoolbox_gaussian((dx,dy),sdf[i])
-
-            B[(middlel-dy÷2+1:middlel+dy÷2) .- (d[i]÷2) .+ 1 , (middlec-dx÷2+1:middlec+dx÷2) .- (d[i]÷2) .+ 1, i] = h #not sure about this line here
-
-            B[:,:,i]=fftshift( B[:,:,i] )/sum(sum(B[:,:,i]))
-            FBM[:,:,i] = fft2(B[:,:,i])
-        else
-            B[1,1,i]=1
-            FBM[:,:,i]=fft2(B[:,:,i])
-        end
-    end
-
-    return FBM
-end
-
-
-
-function createConvKernelSubspace(sdf,nl,nc,L,dx,dy)
-    middlel=Int(round((nl+1)/2,RoundNearestTiesUp))
-    middlec=Int(round((nc+1)/2,RoundNearestTiesUp))
-
-    dx = dx+1
-    dy = dy+1
-
-    # kernel filters expanded to size [nl,nc]
-    B = zeros(nl,nc,L)
-    # fft2 of kernels
-    FBM2 = zeros(ComplexF64,nl,nc,L)
-    s2 = maximum(sdf)
-
-    ##this loop is nearly identical to whats happening above! this would be a good place to improve it
-    for i in 1:L
-        if sdf[i] < s2 # != would be a little better i think
-
-            σ = sqrt(s2^2 - sdf[i]^2)
-            h = Kernel.gaussian((σ,σ),(dx,dy))
-            #h = Kernel.gaussian(3) #this will produce a 13x13 kernel which is close the example 12x12 needed
-
-            B[middlel-(dy-1)÷2:middlel+(dy-1)÷2,middlec-(dx-1)÷2:middlec+(dx-1)÷2,i] = h;
-            B[:,:,i]=fftshift( B[:,:,i] )/sum(sum(B[:,:,i]))
-            FBM2[:,:,i] = fft2(B[:,:,i])
-        else
-            B[1,1,i]=1
-            FBM2[:,:,i]=fft2(B[:,:,i])
-        end
-
-    end
-
-    return FBM2
-
-end
-
-
 
 
 function unnormaliseData(Xim::Array{Float64,3},av::Array{Float64,1})

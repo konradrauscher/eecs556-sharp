@@ -20,9 +20,12 @@ lam = 1.8998e-04;
 %potnames = {'quad'};
 %potnames = {'hyper3','huber','broken','cauchy'};
 %potdeltas = {    0.5,   0.75,     0.5,     0.5};
-wmethods = {'nothing', 'original', 'sobel'};
-potnames = {'quad','cauchy'};
-potdeltas = {  nan,   0.5};
+%wmethods = {'nothing', 'original', 'sobel'};
+%potnames = {'quad','cauchy'};
+%potdeltas = {  nan,   0.5};
+wmethods = {'sobel'};
+potnames = {'quad'};
+potdeltas = {nan};
 
 %hopefully setup MIRT
 addpath('irt/utilities');

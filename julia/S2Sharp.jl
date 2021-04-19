@@ -1,4 +1,4 @@
-import FFTW: fft, ifft, fftshift, ifftshift
+using FFTW
 using Statistics: mean
 using ImageFiltering
 using Images
@@ -43,11 +43,10 @@ function S2sharp(Yim;
     output = Dict("SAMm" => vn(), "SAMm_2m" => vn(), "SRE" => vn(), "GVCscore" => vn(),
         "ERGAS_20m" => vn(), "ERGAS_60m" => vn(), "SSIM" => vn(), "aSSIM" => vn(),
         "RMSE" => vn(), "Time" => vn() )
-
+    FFTW.set_num_threads(6)
 
     tic = time()
 
-    #quick sanity checks here
     if length(q) != r
         println("The length of q has to match r")
     end
@@ -243,7 +242,6 @@ function diffmat(X::Array{Float64,2}, dim::Int, nl::Int; flip::Bool = false)
 
         nl, nc, L = size(Xim)
 
-
         if flip
             Xim = reverse(Xim,dims=dim)
         end
@@ -287,19 +285,31 @@ function grad_cost_G(Z::Array{Float64,2},
     FDVC::Array{ComplexF64,3},
     W::Array{Float64,2})
 
+    FFTCONV = false
+
     X = F*Z
-    BX = conv_sp(X,fbm,nl);
+    if FFTCONV
+        BX = ConvCM(X,FBM,nl)
+    else
+        BX = conv_sp(X,fbm,nl);
+    end
     HtHBX=Mask.*BX;
-    #ZH=ConvCM(Z,FDHC,nl);
-    #Zv=ConvCM(Z,FDVC,nl);
-    ZH = diffmat(Z,2,nl)
-    Zv = diffmat(Z,1,nl)
+    if FFTCONV
+        ZH=ConvCM(Z,FDHC,nl);
+        Zv=ConvCM(Z,FDVC,nl);
+    else
+        ZH = diffmat(Z,2,nl)
+        Zv = diffmat(Z,1,nl)
+    end
     ZHW=ZH.*W;
     ZVW=Zv.*W;
-    #grad_pen=ConvCM(ZHW,FDH,nl)+ConvCM(ZVW,FDV,nl);
-    grad_pen = diffmat(ZHW,2,nl,flip=true) + diffmat(ZVW,1,nl,flip=true)
-    AtAg = F'*conv_sp(HtHBX,fbm,nl,false)+2*tau*(q*ones(1,nl*nc)).*grad_pen;
-    #AtAg = F'*ConvCM(HtHBX,conj.(FBM),nl)+2*tau*(q*ones(1,nl*nc)).*grad_pen;
+    if FFTCONV
+        grad_pen=ConvCM(ZHW,FDH,nl)+ConvCM(ZVW,FDV,nl);
+        AtAg = F'*ConvCM(HtHBX,conj.(FBM),nl)+2*tau*(q*ones(1,nl*nc)).*grad_pen;
+    else
+        grad_pen = diffmat(ZHW,2,nl,flip=true) + diffmat(ZVW,1,nl,flip=true)
+        AtAg = F'*conv_sp(HtHBX,fbm,nl,false)+2*tau*(q*ones(1,nl*nc)).*grad_pen;
+    end
     gradJ=AtAg-UBTMTy;
     J = 1/2 * sum( Z .* AtAg ) - sum( Z.*UBTMTy );
 

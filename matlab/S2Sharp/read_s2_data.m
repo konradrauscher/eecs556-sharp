@@ -2,8 +2,8 @@ BASE = 'C:\Users\Konrad\Documents\EECS556\proj\S2A_MSIL2A_20200926T162041_N0214_
 
 Xm_im = [];
 
-tl_fres = [1141 6901];
-br_fres = [1440 7200];
+tl_fres = [901 6751];
+br_fres = [1500 7350];
 tl_20m = (tl_fres-1)/2+1;
 br_20m = br_fres/2;
 tl_60m = (tl_fres-1)/6+1;
@@ -29,4 +29,5 @@ Yim{end+1} = imread([BASE '\R60m\T16TGM_20200926T162041_B09_60m.jp2'],PR,pr60);
 Yim{end+1} = imread([BASE '\R20m\T16TGM_20200926T162041_B11_20m.jp2'],PR,pr20);
 Yim{end+1} = imread([BASE '\R20m\T16TGM_20200926T162041_B12_20m.jp2'],PR,pr20);
 
-
+RGB = cat(3,Yim{4},Yim{3},Yim{2});
+figure; imshow(RGB*2^5);

@@ -468,7 +468,7 @@ end
 
 function [ Z ] = CG(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W,Whalf,dpot)
     maxiter = 1000;
-    tolgradnorm = 1;%1e-6;    
+    tolgradnorm = 1e-1;%1e-6;    
     [cost,grad] = grad_cost_G(Z,F,Y,UBTMTy,FBM,Mask,nl,nc,r,tau,q,FDH,FDV,FDHC,FDVC,W,Whalf,dpot);
     gradnorm = norm(grad(:));
     iter = 0;

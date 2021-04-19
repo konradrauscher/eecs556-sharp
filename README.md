@@ -7,5 +7,6 @@ To run the Julia code conversion, you'd need to download example.jl, S2sharp.jl,
 To run the Matlab code, follow the path eecs556-sharp/matlab/S2Sharp/ and download example.m, manopt folder, data folder, and S2sharp.m. Running the example file will reproduce some of the pansharpened plots seen in our report. read_s2_data.m is a useful script to get any S2 jp2 image from our online sources into the Yim format that S2Sharp function requires to run.  
 
 Using the same dataset, with manipulation of the input data, one can create pan-sharpened outputs using AWLP, MTF-GLP, and GS methods, located under the matlab folder. 
+The base code is from: https://openremotesensing.net/knowledgebase/a-new-benchmark-based-on-recent-advances-in-multispectral-pansharpening-revisiting-pansharpening-with-classical-and-emerging-pansharpening-methods/
 
 Also in the eecs556-sharp/matlab folder is the pansharpening toolbox, which was used to compare our method against. 

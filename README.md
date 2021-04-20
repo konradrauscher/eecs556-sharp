@@ -9,4 +9,6 @@ To run the Matlab code, follow the path eecs556-sharp/matlab/S2Sharp/ and downlo
 Using the same dataset, with manipulation of the input data, one can create pan-sharpened outputs using AWLP, MTF-GLP, and GS methods, located under the matlab folder. 
 The base code is from: https://openremotesensing.net/knowledgebase/a-new-benchmark-based-on-recent-advances-in-multispectral-pansharpening-revisiting-pansharpening-with-classical-and-emerging-pansharpening-methods/
 
+In order to create reference images when using real Sentinel-2 data, the downsampling.jl code can be used to filter and downsampling the original images to get lower-resolution images for testing.
+
 Also in the eecs556-sharp/matlab folder is the pansharpening toolbox, which was used to compare our method against. 
